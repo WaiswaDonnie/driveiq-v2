@@ -1,0 +1,56 @@
+{
+  "expo": {
+    "name": "DriveIQ",
+    "slug": "driveiq",
+    "scheme": "driveiq",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": false,
+    "splash": {
+      "backgroundColor": "#87CEEB",
+      "resizeMode": "contain"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.driveiq.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "DriveIQ uses your location to show nearby events and calculate distance to event venues."
+      }
+    },
+    "android": {
+      "package": "com.driveiq.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#87CEEB"
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "DriveIQ uses your location to show nearby events and calculate distance to event venues."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ]
+    ],
+    "experiments": {
+      "tsconfigPaths": true,
+      "typedRoutes": false
+    }
+  }
+}

@@ -1,0 +1,76 @@
+import React from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+
+import { colors } from '@/theme/colors';
+import { FILTER_LABELS, type FilterKey } from '@/utils/dateFilters';
+
+interface FilterBarProps {
+  active: FilterKey;
+  onChange: (next: FilterKey) => void;
+}
+
+const ORDER: FilterKey[] = ['all', 'today', 'tomorrow', 'next3'];
+
+export function FilterBar({ active, onChange }: FilterBarProps) {
+  return (
+    <View style={styles.wrap} pointerEvents="box-none">
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.row}
+      >
+        {ORDER.map((key) => {
+          const isActive = key === active;
+          return (
+            <Pressable
+              key={key}
+              onPress={() => onChange(key)}
+              style={[styles.chip, isActive && styles.chipActive]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: isActive }}
+            >
+              <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
+                {FILTER_LABELS[key]}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  wrap: {
+    paddingHorizontal: 12,
+  },
+  row: {
+    gap: 8,
+    paddingVertical: 4,
+  },
+  chip: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  chipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primaryDark,
+  },
+  chipText: {
+    color: colors.textPrimary,
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  chipTextActive: {
+    color: colors.textOnPrimary,
+  },
+});
