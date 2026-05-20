@@ -8,7 +8,7 @@ export interface AppEvent {
   /** Globally-unique id, prefixed with the source for safety. */
   id: string;
   /** Provider name. */
-  source: 'sportmonks' | 'ticketmaster' | 'sample';
+  source: 'sportmonks' | 'thesportsdb' | 'ticketmaster' | 'sample';
   category: EventCategory;
   title: string;
   /** ISO-8601 string. */

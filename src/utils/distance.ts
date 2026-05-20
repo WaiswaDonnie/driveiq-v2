@@ -1,8 +1,11 @@
 /**
- * Haversine distance between two lat/lng points, in kilometres.
- * Good enough for showing "2.4 km away" in the event detail sheet.
+ * Haversine distance between two lat/lng points.
+ * `distanceKm` is kept for the few callers that want raw kilometres;
+ * UI helpers below render in imperial units (miles / feet).
  */
 const R_KM = 6371;
+const KM_PER_MILE = 1.609344;
+const FEET_PER_METER = 3.28084;
 
 const toRad = (deg: number): number => (deg * Math.PI) / 180;
 
@@ -23,9 +26,34 @@ export function distanceKm(a: LatLng, b: LatLng): number {
   return 2 * R_KM * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-/** "2.4 km" / "850 m". */
+export function distanceMeters(a: LatLng, b: LatLng): number {
+  return distanceKm(a, b) * 1000;
+}
+
+/**
+ * Format a kilometre value as miles / feet for the "X away" UI.
+ *   < 0.1 mi → feet (e.g. "320 ft")
+ *   < 10 mi  → "2.4 mi"
+ *   else     → "23 mi"
+ */
 export function formatDistance(km: number): string {
-  if (km < 1) return `${Math.round(km * 1000)} m`;
-  if (km < 10) return `${km.toFixed(1)} km`;
-  return `${Math.round(km)} km`;
+  const miles = km / KM_PER_MILE;
+  if (miles < 0.1) {
+    const feet = km * 1000 * FEET_PER_METER;
+    return `${Math.round(feet)} ft`;
+  }
+  if (miles < 10) return `${miles.toFixed(1)} mi`;
+  return `${Math.round(miles)} mi`;
+}
+
+/** Imperial format for raw metre values used by the routing layer. */
+export function formatDistanceMeters(meters: number): string {
+  if (!Number.isFinite(meters) || meters < 0) return '—';
+  const miles = meters / 1000 / KM_PER_MILE;
+  if (miles < 0.1) {
+    const feet = meters * FEET_PER_METER;
+    return `${Math.round(feet)} ft`;
+  }
+  if (miles < 10) return `${miles.toFixed(1)} mi`;
+  return `${Math.round(miles)} mi`;
 }

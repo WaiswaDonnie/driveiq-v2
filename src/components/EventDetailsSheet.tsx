@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import {
   Modal,
@@ -18,12 +19,14 @@ interface EventDetailsSheetProps {
   event: AppEvent | null;
   userLocation: LatLng | null;
   onClose: () => void;
+  onNavigate?: (event: AppEvent) => void;
 }
 
 export function EventDetailsSheet({
   event,
   userLocation,
   onClose,
+  onNavigate,
 }: EventDetailsSheetProps) {
   const visible = event != null;
 
@@ -37,14 +40,27 @@ export function EventDetailsSheet({
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
           {event && <SheetBody event={event} userLocation={userLocation} />}
-          <Pressable
-            onPress={onClose}
-            style={styles.closeBtn}
-            accessibilityRole="button"
-            accessibilityLabel="Close event details"
-          >
-            <Text style={styles.closeText}>Close</Text>
-          </Pressable>
+          <View style={styles.actions}>
+            {event && onNavigate ? (
+              <Pressable
+                onPress={() => onNavigate(event)}
+                style={styles.directionsBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Get directions to this event"
+              >
+                <Ionicons name="navigate" size={18} color={colors.textOnPrimary} />
+                <Text style={styles.directionsText}>Get directions</Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              onPress={onClose}
+              style={styles.closeBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Close event details"
+            >
+              <Text style={styles.closeText}>Close</Text>
+            </Pressable>
+          </View>
         </Pressable>
       </Pressable>
     </Modal>
@@ -186,17 +202,34 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     lineHeight: 21,
   },
-  closeBtn: {
-    marginTop: 8,
-    marginHorizontal: 20,
+  actions: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    gap: 10,
+  },
+  directionsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
     paddingVertical: 14,
     borderRadius: 14,
     backgroundColor: colors.primary,
+  },
+  directionsText: {
+    color: colors.textOnPrimary,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  closeBtn: {
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: colors.surfaceMuted,
     alignItems: 'center',
   },
   closeText: {
-    color: colors.textOnPrimary,
-    fontSize: 16,
+    color: colors.textPrimary,
+    fontSize: 15,
     fontWeight: '700',
   },
 });

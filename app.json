@@ -1,9 +1,9 @@
 {
   "expo": {
     "name": "DriveIQ",
-    "slug": "driveiq",
+    "slug": "driveiq-91cbfgcslw1jeepr9yba",
     "scheme": "driveiq",
-    "version": "1.0.0",
+    "version": "4.0.7",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": false,
@@ -13,7 +13,8 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.driveiq.app",
+      "bundleIdentifier": "com.driveiq.ios",
+      "buildNumber": "2",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "DriveIQ uses your location to show nearby events and calculate distance to event venues."
       }
@@ -51,6 +52,15 @@
     "experiments": {
       "tsconfigPaths": true,
       "typedRoutes": false
-    }
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "fa2fbaf2-c5f0-4fa2-9db8-3681fb6ade7d"
+      }
+    },
+    "owner": "contactoliwaa"
   }
 }
