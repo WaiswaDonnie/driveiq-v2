@@ -81,7 +81,11 @@ function SheetBody({
       })
     : null;
 
-  const { color: accent, icon } = pinDescriptorFor(event);
+  const descriptor = pinDescriptorFor(event);
+  const accent = descriptor.color;
+  // Show the sport glyph when it's a sport event; otherwise a DriveIQ-style
+  // brand glyph (small "DQ") so the chip stays on-brand for non-sports.
+  const tagIcon = descriptor.kind === 'glyph' ? descriptor.icon : 'DQ';
   const categoryLabel =
     event.subCategory ?? (event.category === 'sports' ? 'Sports' : 'Event');
 
@@ -90,7 +94,7 @@ function SheetBody({
       <View style={styles.handle} />
       <View style={[styles.tagRow]}>
         <View style={[styles.tag, { backgroundColor: accent }]}>
-          <Text style={styles.tagIcon}>{icon}</Text>
+          <Text style={styles.tagIcon}>{tagIcon}</Text>
           <Text style={styles.tagText}>{categoryLabel}</Text>
         </View>
         {km != null && (

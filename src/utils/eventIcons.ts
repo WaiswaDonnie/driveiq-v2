@@ -2,11 +2,14 @@ import { colors } from '@/theme/colors';
 import type { AppEvent } from '@/types/event';
 
 /**
- * Maps an event onto the icon glyph + accent colour shown on its map pin
- * and on filter chips. SportMonks fixtures (always sports) are split by
- * sport sub-category so a football match looks different from a cricket
- * test or a tennis tie. Ticketmaster events fall through into the
- * non-sports buckets (Music, Theatre, Comedy, Film, Family, Other).
+ * Maps an event onto the icon shown on its map pin and on filter chips.
+ *
+ * Two pin variants:
+ *   - 'logo'  — DriveIQ brand mark (used for music, theatre, comedy, film,
+ *               family, other). Single accent colour per category.
+ *   - 'glyph' — sport-specific emoji (football, rugby, cricket, basketball,
+ *               NFL, tennis, etc.). Sports are SportMonks fixtures and merit
+ *               a recognisable category-specific symbol.
  */
 
 export type CategoryFilterKey =
@@ -47,35 +50,55 @@ export function categoryFilterFor(event: AppEvent): CategoryFilterKey {
   return 'other';
 }
 
-/** Glyph + accent colour for a single event's pin. */
-export function pinDescriptorFor(event: AppEvent): {
-  icon: string;
-  color: string;
-} {
-  const sub = (event.subCategory ?? '').toLowerCase();
+export type PinDescriptor =
+  | { kind: 'logo'; color: string }
+  | { kind: 'glyph'; icon: string; color: string };
 
-  // Sports: differentiate per sub-category so a football match, cricket test,
-  // tennis tie, rugby fixture etc. each show a sport-specific glyph.
+/**
+ * Pin descriptor for a single event.
+ *
+ * - SportMonks fixtures (sports category) → sport-specific glyph in brand blue.
+ *   The sub-category drives the symbol so a football match, rugby fixture,
+ *   cricket test, NFL game, basketball game etc. each render distinctly.
+ * - Everything else → DriveIQ logo mark coloured by category accent.
+ */
+export function pinDescriptorFor(event: AppEvent): PinDescriptor {
   if (event.category === 'sports') {
-    if (sub.includes('cricket'))
-      return { icon: '🏏', color: colors.sports };
-    if (sub.includes('tennis'))
-      return { icon: '🎾', color: colors.sports };
-    if (sub.includes('rugby'))
-      return { icon: '🏉', color: colors.sports };
-    if (sub.includes('basketball'))
-      return { icon: '🏀', color: colors.sports };
-    if (sub.includes('box'))
-      return { icon: '🥊', color: colors.sports };
-    if (sub.includes('run') || sub.includes('marathon'))
-      return { icon: '🏃', color: colors.sports };
-    if (sub.includes('hockey'))
-      return { icon: '🏒', color: colors.sports };
-    if (sub.includes('golf'))
-      return { icon: '⛳', color: colors.sports };
-    return { icon: '⚽', color: colors.sports };
+    const sub = (event.subCategory ?? '').toLowerCase();
+    const name = (event.title ?? '').toLowerCase();
+    const hay = `${sub} ${name}`;
+
+    // Order matters — check NFL / American football before generic rugby so
+    // an "NFL London" fixture doesn't fall through to the rugby glyph, and
+    // before generic football so "football" alone still means soccer.
+    if (
+      hay.includes('nfl') ||
+      hay.includes('american football') ||
+      hay.includes('gridiron')
+    )
+      return { kind: 'glyph', icon: '🏈', color: colors.sports };
+    if (hay.includes('cricket'))
+      return { kind: 'glyph', icon: '🏏', color: colors.sports };
+    if (hay.includes('basketball') || hay.includes('nba'))
+      return { kind: 'glyph', icon: '🏀', color: colors.sports };
+    if (hay.includes('tennis'))
+      return { kind: 'glyph', icon: '🎾', color: colors.sports };
+    if (hay.includes('rugby'))
+      return { kind: 'glyph', icon: '🏉', color: colors.sports };
+    if (hay.includes('box'))
+      return { kind: 'glyph', icon: '🥊', color: colors.sports };
+    if (hay.includes('run') || hay.includes('marathon'))
+      return { kind: 'glyph', icon: '🏃', color: colors.sports };
+    if (hay.includes('hockey'))
+      return { kind: 'glyph', icon: '🏒', color: colors.sports };
+    if (hay.includes('golf'))
+      return { kind: 'glyph', icon: '⛳', color: colors.sports };
+    // Default sport pin = football (soccer) — by far the most common London fixture.
+    return { kind: 'glyph', icon: '⚽', color: colors.sports };
   }
 
-  // Non-sports: keep the original simple star pin — single icon, single accent.
-  return { icon: '★', color: colors.accent };
+  // Non-sports: DriveIQ brand mark on a category-accent bubble.
+  const bucket = categoryFilterFor(event);
+  const desc = CATEGORY_FILTERS.find((c) => c.key === bucket);
+  return { kind: 'logo', color: desc?.color ?? colors.primary };
 }

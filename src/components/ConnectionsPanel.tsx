@@ -17,6 +17,7 @@ import {
   SEVERITY_LABEL,
   type LineStatus,
 } from '@/services/tflLines';
+import { LineDetailSheet } from '@/components/LineDetailSheet';
 
 interface Props {
   visible: boolean;
@@ -64,6 +65,8 @@ export function ConnectionsPanel({ visible, onClose }: Props) {
   const [lines, setLines] = useState<LineStatus[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Currently-open line detail popup. `null` = closed.
+  const [openLine, setOpenLine] = useState<LineStatus | null>(null);
 
   useEffect(() => {
     if (!visible) return;
@@ -135,7 +138,16 @@ export function ConnectionsPanel({ visible, onClose }: Props) {
                     </Text>
                   </View>
                   {items.map((l) => (
-                    <View key={`${l.modeName}-${l.id}`} style={styles.lineRow}>
+                    <Pressable
+                      key={`${l.modeName}-${l.id}`}
+                      style={({ pressed }) => [
+                        styles.lineRow,
+                        pressed && styles.lineRowPressed,
+                      ]}
+                      onPress={() => setOpenLine(l)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Open details for ${l.name}`}
+                    >
                       <Ionicons
                         name={modeIcon(l.modeName)}
                         size={18}
@@ -145,26 +157,44 @@ export function ConnectionsPanel({ visible, onClose }: Props) {
                         <Text style={styles.lineName}>{l.name}</Text>
                         <Text style={styles.lineMode}>{modeLabel(l.modeName)}</Text>
                         {l.reason ? (
-                          <Text style={styles.lineReason} numberOfLines={3}>
-                            {l.reason}
+                          <Text style={styles.lineReason} numberOfLines={2}>
+                            {l.reason.replace(/https?:\/\/\S+/gi, '').trim() ||
+                              'Tap for full details'}
                           </Text>
                         ) : null}
                       </View>
-                      <View
-                        style={[
-                          styles.statusPill,
-                          { backgroundColor: SEVERITY_COLOR[l.severityBucket] },
-                        ]}
-                      >
-                        <Text style={styles.statusText}>{l.statusDescription}</Text>
+                      <View style={styles.trailing}>
+                        <View
+                          style={[
+                            styles.statusPill,
+                            { backgroundColor: SEVERITY_COLOR[l.severityBucket] },
+                          ]}
+                        >
+                          <Text style={styles.statusText}>{l.statusDescription}</Text>
+                        </View>
+                        <Ionicons
+                          name="chevron-forward"
+                          size={18}
+                          color={colors.textSecondary}
+                          style={{ marginTop: 6 }}
+                        />
                       </View>
-                    </View>
+                    </Pressable>
                   ))}
                 </View>
               );
             })}
         </ScrollView>
       </View>
+
+      {/* Stacked detail popup — opens on top of this sheet. */}
+      <LineDetailSheet
+        lineId={openLine?.id ?? null}
+        fallbackTitle={openLine?.name}
+        subtitle={openLine ? modeLabel(openLine.modeName) : undefined}
+        initialSeverity={openLine?.severityBucket}
+        onClose={() => setOpenLine(null)}
+      />
     </Modal>
   );
 }
@@ -215,8 +245,16 @@ const styles = StyleSheet.create({
     gap: 10,
     alignItems: 'flex-start',
     paddingVertical: 12,
+    paddingHorizontal: 4,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+    borderRadius: 8,
+  },
+  lineRowPressed: {
+    backgroundColor: colors.surfaceMuted,
+  },
+  trailing: {
+    alignItems: 'flex-end',
   },
   lineName: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
   lineMode: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },

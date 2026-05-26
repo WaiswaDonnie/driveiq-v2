@@ -49,6 +49,16 @@ import {
   isMajorIncident,
   type TrafficIncident,
 } from '@/services/tflTraffic';
+import { fetchHighwaysIncidents } from '@/services/highwaysTraffic';
+import { fetchLineStatuses, type LineStatus } from '@/services/tflLines';
+import {
+  diffAndNotifyIncidents,
+  diffAndNotifyLines,
+  ensurePermission,
+  loadPrefs,
+  type NotificationPrefs,
+} from '@/services/notifications';
+import { NotificationSettingsPanel } from '@/components/NotificationSettingsPanel';
 import { colors } from '@/theme/colors';
 import type { AppEvent } from '@/types/event';
 import { isInRange, rangeFor, type FilterKey } from '@/utils/dateFilters';
@@ -107,6 +117,11 @@ export default function MapScreen() {
   const [layersOpen, setLayersOpen] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [airportsOpen, setAirportsOpen] = useState(false);
+  const [notifSettingsOpen, setNotifSettingsOpen] = useState(false);
+
+  // Notification preferences — read once on mount, kept in state so the
+  // poll loop sees the latest opt-ins/outs.
+  const prefsRef = useRef<NotificationPrefs | null>(null);
   const [layers, setLayers] = useState<LayerVisibility>({
     events: true,
     traffic: false,
@@ -193,14 +208,38 @@ export default function MapScreen() {
   }, []);
 
   // Pull live road incidents on mount, then refresh every 5 minutes.
+  // We merge TfL (London proper) with National Highways (surrounding motorways
+  // and major A-roads) so users see the full picture from their location into
+  // and out of the city. Each poll also diffs against the previous snapshot
+  // and fires local notifications if the user has opted in.
   useEffect(() => {
     let cancelled = false;
-    const load = () => {
-      fetchTrafficIncidents().then((list) => {
-        if (!cancelled) setIncidents(list);
-      });
+    const load = async () => {
+      const [tfl, nh, lines] = await Promise.all([
+        fetchTrafficIncidents(),
+        fetchHighwaysIncidents(),
+        fetchLineStatuses(),
+      ]);
+      if (cancelled) return;
+      const merged = new Map<string, TrafficIncident>();
+      for (const i of [...tfl, ...nh]) merged.set(i.id, i);
+      const incidentList = Array.from(merged.values());
+      setIncidents(incidentList);
+
+      // Fire notifications once user prefs are loaded. We snapshot prefs
+      // through prefsRef so the loop sees changes from the settings panel.
+      const prefs = prefsRef.current;
+      if (prefs) {
+        diffAndNotifyIncidents(incidentList, prefs).catch(() => undefined);
+        diffAndNotifyLines(lines as LineStatus[], prefs).catch(() => undefined);
+      }
     };
-    load();
+    // Bootstrap prefs + permission once, then start the poll loop.
+    (async () => {
+      prefsRef.current = await loadPrefs();
+      await ensurePermission();
+      load();
+    })();
     const id = setInterval(load, 5 * 60 * 1000);
     return () => {
       cancelled = true;
@@ -611,7 +650,7 @@ export default function MapScreen() {
          */}
         {!destination && layers.events &&
           visibleEvents.map((event) => {
-            const { icon, color } = pinDescriptorFor(event);
+            const descriptor = pinDescriptorFor(event);
             return (
               <Marker
                 key={event.id}
@@ -623,8 +662,7 @@ export default function MapScreen() {
                 anchor={{ x: 0.5, y: 1 }}
               >
                 <EventMarker
-                  icon={icon}
-                  color={color}
+                  descriptor={descriptor}
                   selected={selected?.id === event.id}
                 />
               </Marker>
@@ -782,6 +820,13 @@ export default function MapScreen() {
             onPress: () => setLayersOpen(true),
             active: layersOpen,
           },
+          {
+            key: 'notifications',
+            label: 'Notifications',
+            icon: 'notifications',
+            onPress: () => setNotifSettingsOpen(true),
+            active: notifSettingsOpen,
+          },
         ]}
       />
       )}
@@ -823,6 +868,15 @@ export default function MapScreen() {
       <ConnectionsPanel
         visible={connectionsOpen}
         onClose={() => setConnectionsOpen(false)}
+      />
+
+      <NotificationSettingsPanel
+        visible={notifSettingsOpen}
+        onClose={async () => {
+          setNotifSettingsOpen(false);
+          // Re-read prefs so the next poll picks up the user's changes.
+          prefsRef.current = await loadPrefs();
+        }}
       />
 
       <AirportsPanel

@@ -16,6 +16,7 @@ import {
   fetchAirportConnectionStatuses,
   type ConnectionStatus,
 } from '@/services/airports';
+import { LineDetailSheet } from '@/components/LineDetailSheet';
 
 interface Props {
   visible: boolean;
@@ -35,6 +36,7 @@ export function AirportsPanel({ visible, onClose, onPickAirport, onNavigate }: P
   const [statuses, setStatuses] = useState<Record<string, ConnectionStatus[]>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [openConn, setOpenConn] = useState<ConnectionStatus | null>(null);
 
   useEffect(() => {
     if (!visible) return;
@@ -132,26 +134,44 @@ export function AirportsPanel({ visible, onClose, onPickAirport, onNavigate }: P
                     <Text style={styles.empty}>No connection data.</Text>
                   ) : (
                     conns.map((c) => (
-                      <View key={c.lineId} style={styles.connRow}>
+                      <Pressable
+                        key={c.lineId}
+                        style={({ pressed }) => [
+                          styles.connRow,
+                          pressed && styles.connRowPressed,
+                        ]}
+                        onPress={() => setOpenConn(c)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open details for ${c.label}`}
+                      >
                         <Ionicons name="train" size={16} color={colors.textSecondary} />
                         <View style={{ flex: 1 }}>
                           <Text style={styles.connLabel}>{c.label}</Text>
                           {c.note ? <Text style={styles.connNote}>{c.note}</Text> : null}
                           {c.reason ? (
-                            <Text style={styles.connReason} numberOfLines={3}>
-                              {c.reason}
+                            <Text style={styles.connReason} numberOfLines={2}>
+                              {c.reason.replace(/https?:\/\/\S+/gi, '').trim() ||
+                                'Tap for full details'}
                             </Text>
                           ) : null}
                         </View>
-                        <View
-                          style={[
-                            styles.statusPill,
-                            { backgroundColor: SEVERITY_COLOR[c.severityBucket] },
-                          ]}
-                        >
-                          <Text style={styles.statusText}>{c.statusDescription}</Text>
+                        <View style={styles.connTrailing}>
+                          <View
+                            style={[
+                              styles.statusPill,
+                              { backgroundColor: SEVERITY_COLOR[c.severityBucket] },
+                            ]}
+                          >
+                            <Text style={styles.statusText}>{c.statusDescription}</Text>
+                          </View>
+                          <Ionicons
+                            name="chevron-forward"
+                            size={16}
+                            color={colors.textSecondary}
+                            style={{ marginTop: 4 }}
+                          />
                         </View>
-                      </View>
+                      </Pressable>
                     ))
                   )}
                 </View>
@@ -159,6 +179,14 @@ export function AirportsPanel({ visible, onClose, onPickAirport, onNavigate }: P
             })}
         </ScrollView>
       </View>
+
+      <LineDetailSheet
+        lineId={openConn?.lineId ?? null}
+        fallbackTitle={openConn?.label}
+        subtitle={openConn?.note}
+        initialSeverity={openConn?.severityBucket}
+        onClose={() => setOpenConn(null)}
+      />
     </Modal>
   );
 }
@@ -220,8 +248,16 @@ const styles = StyleSheet.create({
     gap: 10,
     alignItems: 'flex-start',
     paddingVertical: 10,
+    paddingHorizontal: 4,
     borderTopWidth: 1,
     borderTopColor: colors.border,
+    borderRadius: 8,
+  },
+  connRowPressed: {
+    backgroundColor: colors.surface,
+  },
+  connTrailing: {
+    alignItems: 'flex-end',
   },
   connLabel: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
   connNote: { fontSize: 11, color: colors.textSecondary, marginTop: 2, fontStyle: 'italic' },
