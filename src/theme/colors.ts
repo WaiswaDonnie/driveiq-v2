@@ -36,6 +36,10 @@ export const colors = {
   film: '#FF5252',       // Red for film
   family: '#26C281',     // Green for family
   other: '#4CA9FF',      // Gradient blue fallback
+
+  // Curated "featured" events that aren't in any API feed (e.g. Royal Ascot,
+  // Epsom Derby). Gold so they stand out from the category palette.
+  featured: '#E8A317',
 };
 
 export type AppColors = typeof colors;

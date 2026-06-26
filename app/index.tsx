@@ -4,11 +4,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import MapView, {
   Marker,
   Polyline,
@@ -22,7 +25,7 @@ import { AirportsPanel } from '@/components/AirportsPanel';
 import { CategoryFilterBar } from '@/components/CategoryFilterBar';
 import { ConnectionsPanel } from '@/components/ConnectionsPanel';
 import { EventDetailsSheet } from '@/components/EventDetailsSheet';
-import { EventMarker } from '@/components/EventMarker';
+import { EventPin } from '@/components/EventPin';
 import { FilterBar } from '@/components/FilterBar';
 import {
   LayerControlPanel,
@@ -56,16 +59,47 @@ import {
   diffAndNotifyLines,
   ensurePermission,
   loadPrefs,
+  scheduleEventReminder,
   type NotificationPrefs,
 } from '@/services/notifications';
+import {
+  loadSavedEvents,
+  saveEvent,
+  unsaveEvent,
+  type SavedEventMap,
+} from '@/services/savedEvents';
+import { addEventToCalendar } from '@/services/calendar';
+import { ReportSheet } from '@/components/ReportSheet';
+import { ReportMarker } from '@/components/ReportMarker';
+import {
+  addReport,
+  loadReports,
+  removeReport,
+  REPORT_META,
+  type ReportCategory,
+  type UserReport,
+} from '@/services/reports';
+import { NotificationOnboarding } from '@/components/NotificationOnboarding';
+import { OnboardingTour } from '@/components/OnboardingTour';
 import { NotificationSettingsPanel } from '@/components/NotificationSettingsPanel';
+import { SidebarMenu } from '@/components/SidebarMenu';
+import { HelpSheet } from '@/components/HelpSheet';
+import { FeedbackSheet } from '@/components/FeedbackSheet';
+import { AboutSheet } from '@/components/AboutSheet';
+import { AISupportSheet } from '@/components/AISupportSheet';
+import { AuthSheet } from '@/components/AuthSheet';
+import { AccountSheet, type AccountSection } from '@/components/AccountSheet';
 import { colors } from '@/theme/colors';
 import type { AppEvent } from '@/types/event';
-import { isInRange, rangeFor, type FilterKey } from '@/utils/dateFilters';
+import {
+  buildFilterChips,
+  isInRange,
+  rangeFor,
+  type FilterKey,
+} from '@/utils/dateFilters';
 import { distanceMeters, type LatLng } from '@/utils/distance';
 import {
   categoryFilterFor,
-  pinDescriptorFor,
   type CategoryFilterKey,
 } from '@/utils/eventIcons';
 
@@ -97,6 +131,10 @@ const isExpoGo =
 const MAP_PROVIDER =
   Platform.OS === 'ios' && isExpoGo ? PROVIDER_DEFAULT : PROVIDER_GOOGLE;
 
+// DriveIQ brand mark for the top pill + sidebar header.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const BRAND_LOGO = require('../assets/driveiq-logo.png');
+
 export default function MapScreen() {
   const mapRef = useRef<MapView>(null);
   const [filter, setFilter] = useState<FilterKey>('all');
@@ -109,6 +147,17 @@ export default function MapScreen() {
   const [userLocation, setUserLocation] = useState<LatLng | null>(null);
   const [selected, setSelected] = useState<AppEvent | null>(null);
 
+  // Saved / followed events (persisted). Drives the bookmark state on the
+  // event sheet and the 1-hour-before reminder.
+  const [savedEvents, setSavedEvents] = useState<SavedEventMap>({});
+
+  // Community reports (persisted, device-local). `reportSheetOpen` drives the
+  // create-report sheet; `lastRegionRef` tracks the map centre so a new report
+  // drops where the user is looking.
+  const [reports, setReports] = useState<UserReport[]>([]);
+  const [reportSheetOpen, setReportSheetOpen] = useState(false);
+  const lastRegionRef = useRef<Region>(LONDON_REGION);
+
   // Traffic incidents (TfL).
   const [incidents, setIncidents] = useState<TrafficIncident[]>([]);
   const [selectedIncident, setSelectedIncident] = useState<TrafficIncident | null>(null);
@@ -118,6 +167,28 @@ export default function MapScreen() {
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [airportsOpen, setAirportsOpen] = useState(false);
   const [notifSettingsOpen, setNotifSettingsOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // First-launch product tour gates the notifications ask so they don't
+  // stack on top of each other.
+  const [tourDone, setTourDone] = useState(false);
+
+  // Support sheets reachable from the sidebar.
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [aiSupportOpen, setAiSupportOpen] = useState(false);
+
+  // Auth UI: sign-in / create-account sheet, and the signed-in account
+  // management sheet (profile / email / password).
+  const [authSheet, setAuthSheet] = useState<{ open: boolean; mode: 'signin' | 'signup' }>({
+    open: false,
+    mode: 'signin',
+  });
+  const [accountSheet, setAccountSheet] = useState<{ open: boolean; section: AccountSection }>({
+    open: false,
+    section: 'profile',
+  });
 
   // Notification preferences — read once on mount, kept in state so the
   // poll loop sees the latest opt-ins/outs.
@@ -193,6 +264,28 @@ export default function MapScreen() {
       .then((list) => {
         if (cancelled) return;
         setEvents(list);
+
+        // Diagnostic: how many events fall on each of the next 7 local days.
+        // If "Tomorrow" returns 0 we want to see whether tomorrow genuinely
+        // has no events or whether a timezone offset is bucketing them onto
+        // the wrong day.
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const buckets: Record<string, number> = {};
+        for (const e of list) {
+          const d = new Date(e.startsAt);
+          const localDay = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          buckets[localDay] = (buckets[localDay] ?? 0) + 1;
+        }
+        const next7: string[] = [];
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(today);
+          d.setDate(d.getDate() + i);
+          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          const label = i === 0 ? 'today' : i === 1 ? 'tomorrow' : `+${i}d`;
+          next7.push(`${key}(${label})=${buckets[key] ?? 0}`);
+        }
+        console.log(`[events] ${list.length} total cached; next 7 days: ${next7.join(', ')}`);
       })
       .catch((e) => {
         if (cancelled) return;
@@ -257,6 +350,67 @@ export default function MapScreen() {
     });
   }, [events, filter, categories]);
 
+  // Ordered filter chips: the four presets plus a scrollable strip of
+  // individual future days. Built once on mount so the day labels stay stable.
+  const filterChips = useMemo(() => buildFilterChips(), []);
+
+  // Per-filter event counts for the FilterBar chip badges. Recomputed when
+  // events or the category set change; filter chip never recomputes itself.
+  const filterCounts = useMemo<Partial<Record<FilterKey, number>>>(() => {
+    const out: Partial<Record<FilterKey, number>> = {};
+    for (const { key } of filterChips) {
+      const range = rangeFor(key);
+      let n = 0;
+      for (const e of events) {
+        if (!isInRange(e.startsAt, range)) continue;
+        if (categories.size > 0 && !categories.has(categoryFilterFor(e))) continue;
+        n++;
+      }
+      out[key] = n;
+    }
+    return out;
+  }, [events, categories, filterChips]);
+
+  // When the date filter OR category set changes and we have visible events,
+  // frame them in the viewport so the user doesn't have to play hide-and-seek
+  // with a pin at Wembley / Twickenham / etc. Skip the framing when:
+  //   - we're navigating or previewing a route (the route owns the camera)
+  //   - neither filter has actually changed since last frame
+  //   - the filtered list is empty (let the empty state speak for itself)
+  const lastFramedKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (isNavigating || destination) return;
+    const catKey = Array.from(categories).sort().join(',') || 'all';
+    const key = `${filter}|${catKey}`;
+    if (lastFramedKeyRef.current === key) return;
+    lastFramedKeyRef.current = key;
+    if (!visibleEvents.length) return;
+    if (!mapRef.current) return;
+
+    if (visibleEvents.length === 1) {
+      const only = visibleEvents[0];
+      mapRef.current.animateToRegion(
+        {
+          latitude: only.latitude,
+          longitude: only.longitude,
+          latitudeDelta: 0.04,
+          longitudeDelta: 0.04,
+        },
+        450,
+      );
+      return;
+    }
+
+    const coords = visibleEvents.map((e) => ({
+      latitude: e.latitude,
+      longitude: e.longitude,
+    }));
+    mapRef.current.fitToCoordinates(coords, {
+      edgePadding: { top: 200, right: 60, bottom: 180, left: 60 },
+      animated: true,
+    });
+  }, [filter, categories, visibleEvents, isNavigating, destination]);
+
   const initialRegion = useMemo<Region>(() => {
     if (userLocation) {
       return {
@@ -282,7 +436,9 @@ export default function MapScreen() {
     setCategories(new Set());
   }, []);
 
-  const handlePinPress = (event: AppEvent) => {
+  // Stable across renders so the memoized EventPin children don't re-render
+  // (and re-rasterise) every time the parent updates.
+  const handlePinPress = useCallback((event: AppEvent) => {
     setSelected(event);
     mapRef.current?.animateToRegion(
       {
@@ -293,7 +449,112 @@ export default function MapScreen() {
       },
       350,
     );
-  };
+  }, []);
+
+  // Hydrate saved events once on mount.
+  useEffect(() => {
+    let cancelled = false;
+    loadSavedEvents().then((map) => {
+      if (!cancelled) setSavedEvents(map);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Save / unsave an event. Saving also schedules the 1-hour-before reminder
+  // (no-op if notifications aren't granted / available).
+  const handleToggleSave = useCallback((event: AppEvent) => {
+    setSavedEvents((prev) => {
+      const isSaved = event.id in prev;
+      if (isSaved) {
+        const next = { ...prev };
+        delete next[event.id];
+        unsaveEvent(event.id).catch(() => undefined);
+        return next;
+      }
+      saveEvent(event).catch(() => undefined);
+      const prefs = prefsRef.current;
+      if (prefs) scheduleEventReminder(event, prefs).catch(() => undefined);
+      return { ...prev, [event.id]: event };
+    });
+  }, []);
+
+  // Export an event to the device calendar (start + end + 1h alarm).
+  const handleAddToCalendar = useCallback(async (event: AppEvent) => {
+    const res = await addEventToCalendar(event);
+    if (res.ok) {
+      Alert.alert('Added to calendar', `“${event.title}” is in your calendar.`);
+    } else if (res.reason === 'denied') {
+      Alert.alert(
+        'Calendar access needed',
+        'Allow calendar access in Settings to add events.',
+      );
+    } else if (res.reason === 'unavailable') {
+      Alert.alert(
+        'Not available yet',
+        'Calendar export turns on in the next build. Your event is still saved with a reminder.',
+      );
+    } else {
+      Alert.alert('Could not add', 'Something went wrong adding to your calendar.');
+    }
+  }, []);
+
+  // Hydrate community reports once on mount.
+  useEffect(() => {
+    let cancelled = false;
+    loadReports().then((r) => {
+      if (!cancelled) setReports(r);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Create a report at the current map centre.
+  const handleSubmitReport = useCallback(
+    (category: ReportCategory, note: string) => {
+      const region = lastRegionRef.current;
+      addReport({
+        category,
+        note: note || undefined,
+        latitude: region.latitude,
+        longitude: region.longitude,
+      })
+        .then((next) => {
+          setReports(next);
+          setReportSheetOpen(false);
+          Alert.alert(
+            'Report added',
+            `Thanks — your ${REPORT_META[category].label.toLowerCase()} report is on the map.`,
+          );
+        })
+        .catch(() => setReportSheetOpen(false));
+    },
+    [],
+  );
+
+  // Tap an existing report → details + option to remove it.
+  const handleReportPress = useCallback((report: UserReport) => {
+    const meta = REPORT_META[report.category] ?? REPORT_META.other;
+    const when = new Date(report.createdAt).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    Alert.alert(
+      meta.label,
+      `${report.note ? `${report.note}\n\n` : ''}Reported at ${when}`,
+      [
+        { text: 'Close', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () =>
+            removeReport(report.id).then(setReports).catch(() => undefined),
+        },
+      ],
+    );
+  }, []);
 
   const recenter = () => {
     const target = userLocation ?? {
@@ -631,6 +892,9 @@ export default function MapScreen() {
         provider={MAP_PROVIDER}
         style={StyleSheet.absoluteFill}
         initialRegion={initialRegion}
+        // Live road-flow overlay from the maps API, tied to the Traffic layer
+        // toggle (same switch that shows the incident pins).
+        showsTraffic={layers.traffic}
         showsUserLocation={userLocation != null}
         showsMyLocationButton={false}
         toolbarEnabled={false}
@@ -642,6 +906,11 @@ export default function MapScreen() {
         onPanDrag={() => {
           if (isNavigating) setCameraDetached(true);
         }}
+        // Cheap ref write (no re-render) so a new report can drop at the
+        // current map centre.
+        onRegionChangeComplete={(r) => {
+          lastRegionRef.current = r;
+        }}
       >
         {/*
          * While a destination is active (preview or live nav), suppress all
@@ -649,25 +918,27 @@ export default function MapScreen() {
          * besides the route polyline.
          */}
         {!destination && layers.events &&
-          visibleEvents.map((event) => {
-            const descriptor = pinDescriptorFor(event);
-            return (
-              <Marker
-                key={event.id}
-                coordinate={{
-                  latitude: event.latitude,
-                  longitude: event.longitude,
-                }}
-                onPress={() => handlePinPress(event)}
-                anchor={{ x: 0.5, y: 1 }}
-              >
-                <EventMarker
-                  descriptor={descriptor}
-                  selected={selected?.id === event.id}
-                />
-              </Marker>
-            );
-          })}
+          visibleEvents.map((event) => (
+            <EventPin
+              key={event.id}
+              event={event}
+              selected={selected?.id === event.id}
+              onPress={handlePinPress}
+            />
+          ))}
+
+        {!destination &&
+          reports.map((report) => (
+            <Marker
+              key={report.id}
+              coordinate={{ latitude: report.latitude, longitude: report.longitude }}
+              onPress={() => handleReportPress(report)}
+              anchor={{ x: 0.5, y: 1 }}
+              tracksViewChanges={false}
+            >
+              <ReportMarker category={report.category} />
+            </Marker>
+          ))}
 
         {!destination && layers.traffic &&
           majorIncidents.map((inc) => (
@@ -752,11 +1023,30 @@ export default function MapScreen() {
       {!destination ? (
         <SafeAreaView edges={['top']} style={styles.topOverlay} pointerEvents="box-none">
           <View style={styles.brandRow}>
-            <View style={styles.brandPill}>
+            <Pressable
+              onPress={() => setSidebarOpen(true)}
+              style={styles.brandPill}
+              accessibilityRole="button"
+              accessibilityLabel="Open menu"
+            >
+              <Ionicons name="menu" size={16} color={colors.textOnPrimary} />
+              <View style={styles.brandLogoBadge}>
+                <Image
+                  source={BRAND_LOGO}
+                  resizeMode="contain"
+                  style={styles.brandLogo}
+                  accessibilityIgnoresInvertColors
+                />
+              </View>
               <Text style={styles.brandText}>DriveIQ</Text>
-            </View>
+            </Pressable>
           </View>
-          <FilterBar active={filter} onChange={setFilter} />
+          <FilterBar
+            active={filter}
+            onChange={setFilter}
+            chips={filterChips}
+            counts={filterCounts}
+          />
           <CategoryFilterBar
             selected={categories}
             onToggle={toggleCategory}
@@ -784,12 +1074,19 @@ export default function MapScreen() {
       {!destination && (
       <MapActionStack
         bottomOffset={90}
+        primaryAction={{
+          key: 'recenter',
+          label: 'Re-centre map',
+          icon: 'locate',
+          onPress: recenter,
+        }}
         actions={[
           {
-            key: 'recenter',
-            label: 'Re-centre map',
-            icon: 'locate',
-            onPress: recenter,
+            key: 'report',
+            label: 'Report something',
+            icon: 'add-circle',
+            onPress: () => setReportSheetOpen(true),
+            active: reportSheetOpen,
           },
           {
             key: 'connections',
@@ -807,7 +1104,7 @@ export default function MapScreen() {
           },
           {
             key: 'traffic',
-            label: 'Toggle major traffic incidents',
+            label: layers.traffic ? 'Live traffic on' : 'Live traffic',
             icon: layers.traffic ? 'car' : 'car-outline',
             onPress: () => toggleLayer('traffic'),
             active: layers.traffic,
@@ -834,6 +1131,9 @@ export default function MapScreen() {
       <EventDetailsSheet
         event={selected}
         userLocation={userLocation}
+        saved={selected ? selected.id in savedEvents : false}
+        onToggleSave={handleToggleSave}
+        onAddToCalendar={handleAddToCalendar}
         onClose={() => setSelected(null)}
         onNavigate={(event) => {
           setSelected(null);
@@ -843,6 +1143,12 @@ export default function MapScreen() {
             longitude: event.longitude,
           });
         }}
+      />
+
+      <ReportSheet
+        visible={reportSheetOpen}
+        onClose={() => setReportSheetOpen(false)}
+        onSubmit={handleSubmitReport}
       />
 
       <TrafficIncidentSheet
@@ -868,6 +1174,55 @@ export default function MapScreen() {
       <ConnectionsPanel
         visible={connectionsOpen}
         onClose={() => setConnectionsOpen(false)}
+      />
+
+      {/* First-launch onboarding popup. Renders nothing once the user has
+          made their initial choice; can still be opened anytime via the
+          Notifications panel in the action stack. */}
+      <OnboardingTour onDone={() => setTourDone(true)} />
+
+      {tourDone ? (
+        <NotificationOnboarding
+          onDone={async () => {
+            prefsRef.current = await loadPrefs();
+          }}
+        />
+      ) : null}
+
+      <SidebarMenu
+        visible={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        onOpenNotifications={() => setNotifSettingsOpen(true)}
+        onOpenAuth={(mode) => setAuthSheet({ open: true, mode })}
+        onOpenAccount={(section) => setAccountSheet({ open: true, section })}
+        onOpenHelp={() => setHelpOpen(true)}
+        onOpenFeedback={() => setFeedbackOpen(true)}
+        onOpenAbout={() => setAboutOpen(true)}
+        onOpenAISupport={() => setAiSupportOpen(true)}
+      />
+
+      <HelpSheet
+        visible={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        onOpenAISupport={() => {
+          setHelpOpen(false);
+          setTimeout(() => setAiSupportOpen(true), 250);
+        }}
+      />
+      <FeedbackSheet visible={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
+      <AboutSheet visible={aboutOpen} onClose={() => setAboutOpen(false)} />
+      <AISupportSheet visible={aiSupportOpen} onClose={() => setAiSupportOpen(false)} />
+
+      <AuthSheet
+        visible={authSheet.open}
+        initialMode={authSheet.mode}
+        onClose={() => setAuthSheet((s) => ({ ...s, open: false }))}
+      />
+
+      <AccountSheet
+        visible={accountSheet.open}
+        section={accountSheet.section}
+        onClose={() => setAccountSheet((s) => ({ ...s, open: false }))}
       />
 
       <NotificationSettingsPanel
@@ -965,8 +1320,12 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   brandPill: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingLeft: 12,
+    paddingRight: 16,
+    paddingVertical: 7,
     borderRadius: 999,
     backgroundColor: colors.primary,
     shadowColor: colors.shadow,
@@ -974,6 +1333,19 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 5,
+  },
+  // White disc behind the logo so the brand mark reads cleanly on the blue pill.
+  brandLogoBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brandLogo: {
+    width: 15,
+    height: 18,
   },
   brandText: {
     color: colors.textOnPrimary,

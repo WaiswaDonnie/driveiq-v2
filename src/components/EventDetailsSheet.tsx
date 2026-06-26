@@ -11,7 +11,7 @@ import {
 
 import { colors } from '@/theme/colors';
 import type { AppEvent } from '@/types/event';
-import { formatEventDate } from '@/utils/dateFilters';
+import { formatEventDate, formatEventEndTime } from '@/utils/dateFilters';
 import { distanceKm, formatDistance, type LatLng } from '@/utils/distance';
 import { pinDescriptorFor } from '@/utils/eventIcons';
 
@@ -20,6 +20,12 @@ interface EventDetailsSheetProps {
   userLocation: LatLng | null;
   onClose: () => void;
   onNavigate?: (event: AppEvent) => void;
+  /** Whether the currently-shown event is saved. */
+  saved?: boolean;
+  /** Toggle saved state (also schedules / cancels the 1-hour reminder). */
+  onToggleSave?: (event: AppEvent) => void;
+  /** Add the event to the device calendar (start + end). */
+  onAddToCalendar?: (event: AppEvent) => void;
 }
 
 export function EventDetailsSheet({
@@ -27,6 +33,9 @@ export function EventDetailsSheet({
   userLocation,
   onClose,
   onNavigate,
+  saved = false,
+  onToggleSave,
+  onAddToCalendar,
 }: EventDetailsSheetProps) {
   const visible = event != null;
 
@@ -52,6 +61,45 @@ export function EventDetailsSheet({
                 <Text style={styles.directionsText}>Get directions</Text>
               </Pressable>
             ) : null}
+
+            {event && (onToggleSave || onAddToCalendar) ? (
+              <View style={styles.secondaryRow}>
+                {onToggleSave ? (
+                  <Pressable
+                    onPress={() => onToggleSave(event)}
+                    style={[styles.secondaryBtn, saved && styles.secondaryBtnActive]}
+                    accessibilityRole="button"
+                    accessibilityLabel={saved ? 'Remove saved event' : 'Save event'}
+                  >
+                    <Ionicons
+                      name={saved ? 'bookmark' : 'bookmark-outline'}
+                      size={17}
+                      color={saved ? colors.textOnPrimary : colors.primary}
+                    />
+                    <Text
+                      style={[
+                        styles.secondaryText,
+                        saved && styles.secondaryTextActive,
+                      ]}
+                    >
+                      {saved ? 'Saved' : 'Save'}
+                    </Text>
+                  </Pressable>
+                ) : null}
+                {onAddToCalendar ? (
+                  <Pressable
+                    onPress={() => onAddToCalendar(event)}
+                    style={styles.secondaryBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add event to calendar"
+                  >
+                    <Ionicons name="calendar-outline" size={17} color={colors.primary} />
+                    <Text style={styles.secondaryText}>Calendar</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
+
             <Pressable
               onPress={onClose}
               style={styles.closeBtn}
@@ -104,6 +152,7 @@ function SheetBody({
 
       <Text style={styles.title}>{event.title}</Text>
       <Text style={styles.date}>{formatEventDate(event.startsAt)}</Text>
+      <Text style={styles.endTime}>Ends {formatEventEndTime(event.startsAt, event.endsAt)}</Text>
 
       <View style={styles.metaRow}>
         <Text style={styles.metaLabel}>Venue</Text>
@@ -187,6 +236,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: colors.primaryDark,
     fontWeight: '600',
+    marginBottom: 4,
+  },
+  endTime: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    fontWeight: '500',
     marginBottom: 16,
   },
   metaRow: {
@@ -224,6 +279,31 @@ const styles = StyleSheet.create({
     color: colors.textOnPrimary,
     fontSize: 16,
     fontWeight: '700',
+  },
+  secondaryRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  secondaryBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: colors.primarySoft,
+  },
+  secondaryBtnActive: {
+    backgroundColor: colors.primary,
+  },
+  secondaryText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  secondaryTextActive: {
+    color: colors.textOnPrimary,
   },
   closeBtn: {
     paddingVertical: 12,

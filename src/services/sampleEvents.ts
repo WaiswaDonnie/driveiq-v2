@@ -1,5 +1,6 @@
 import type { AppEvent } from '@/types/event';
 import { isInRange, type DateRange } from '@/utils/dateFilters';
+import { defaultEndsAt } from '@/utils/duration';
 
 /**
  * Fallback events shown when no API keys are configured. Real London venues, with synthetic
@@ -14,7 +15,11 @@ const offsetIso = (days: number, hour: number, minute = 0): string => {
   return d.toISOString();
 };
 
-const SAMPLE: AppEvent[] = [
+// Built from a Partial template so each entry only declares startsAt + sub;
+// `endsAt` is computed downstream from defaultEndsAt(startsAt, sub).
+type SampleSeed = Omit<AppEvent, 'endsAt'>;
+
+const SAMPLE_SEEDS: SampleSeed[] = [
   {
     id: 'sample-1',
     source: 'sample',
@@ -112,6 +117,12 @@ const SAMPLE: AppEvent[] = [
     subCategory: 'Comedy',
   },
 ];
+
+// Materialise the seeds into real AppEvents with computed end times.
+const SAMPLE: AppEvent[] = SAMPLE_SEEDS.map((s) => ({
+  ...s,
+  endsAt: defaultEndsAt(s.startsAt, s.subCategory),
+}));
 
 export function fetchSampleEvents(range: DateRange): AppEvent[] {
   return SAMPLE.filter((e) => isInRange(e.startsAt, range));

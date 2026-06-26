@@ -45,6 +45,7 @@ export const DEFAULT_PREFS: NotificationPrefs = {
 const STORAGE_KEY_PREFS = 'driveiq.notif.prefs.v1';
 const STORAGE_KEY_INCIDENTS = 'driveiq.notif.lastIncidents.v1';
 const STORAGE_KEY_LINES = 'driveiq.notif.lastLines.v1';
+const STORAGE_KEY_ONBOARDING_SEEN = 'driveiq.notif.onboardingSeen.v1';
 
 // Lazy module loaders — the require() lives behind a try so a missing
 // package never crashes startup. The package is wired up at build time
@@ -52,8 +53,35 @@ const STORAGE_KEY_LINES = 'driveiq.notif.lastLines.v1';
 let _Notifications: any = null;
 let _Storage: any = null;
 
+/**
+ * True when the expo-notifications NATIVE module is compiled into this app
+ * binary. expo-notifications throws "Cannot find native module
+ * 'ExpoPushTokenManager'" at import time when the JS package is installed
+ * but the iOS/Android native side wasn't rebuilt (pods not reinstalled) —
+ * and that throw escapes an ordinary try/catch around require() in Expo
+ * SDK 53+. So we probe Expo's native-module registry FIRST and skip the
+ * import entirely when the module is absent.
+ */
+const hasNativeNotificationsModule = (): boolean => {
+  try {
+    const mods = (globalThis as { expo?: { modules?: Record<string, unknown> } })
+      .expo?.modules;
+    return !!mods && 'ExpoPushTokenManager' in mods;
+  } catch {
+    return false;
+  }
+};
+
 const getNotifications = (): any => {
   if (_Notifications !== null) return _Notifications;
+  if (!hasNativeNotificationsModule()) {
+    console.warn(
+      '[notif] expo-notifications native module is not in this build — ' +
+        'notifications disabled. Run `npx pod-install ios` and rebuild to enable.',
+    );
+    _Notifications = false;
+    return null;
+  }
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     _Notifications = require('expo-notifications');
@@ -108,6 +136,53 @@ export async function loadPrefs(): Promise<NotificationPrefs> {
 export async function savePrefs(prefs: NotificationPrefs): Promise<void> {
   await safeSet(STORAGE_KEY_PREFS, JSON.stringify(prefs));
 }
+
+/**
+ * Has the first-launch onboarding popup already been shown? Returned as a
+ * boolean so the caller can simply skip the modal when true.
+ */
+export async function hasSeenOnboarding(): Promise<boolean> {
+  const v = await safeGet(STORAGE_KEY_ONBOARDING_SEEN);
+  return v === '1';
+}
+
+export async function markOnboardingSeen(): Promise<void> {
+  await safeSet(STORAGE_KEY_ONBOARDING_SEEN, '1');
+}
+
+// ─── Per-line subscriptions ─────────────────────────────────────────────
+
+/**
+ * Which specific transit lines the user wants to be pinged about. The map
+ * is keyed by TfL `lineId` (e.g. "victoria", "elizabeth", "thameslink").
+ *
+ * Two flavours of consumer:
+ *   - Empty map → subscribed to ALL lines (default; matches v1 behaviour).
+ *   - Non-empty map → only lines with `true` here trigger notifications.
+ */
+export type LineSubscriptions = Record<string, boolean>;
+const STORAGE_KEY_LINE_SUBS = 'driveiq.notif.lineSubs.v1';
+
+export async function loadLineSubscriptions(): Promise<LineSubscriptions> {
+  const raw = await safeGet(STORAGE_KEY_LINE_SUBS);
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as LineSubscriptions;
+  } catch {
+    return {};
+  }
+}
+
+export async function saveLineSubscriptions(subs: LineSubscriptions): Promise<void> {
+  await safeSet(STORAGE_KEY_LINE_SUBS, JSON.stringify(subs));
+}
+
+/** True if the user is subscribed to this line (or has no specific subs). */
+const isLineSubscribed = (lineId: string, subs: LineSubscriptions): boolean => {
+  const explicit = Object.values(subs).some(Boolean);
+  if (!explicit) return true; // default = all lines
+  return subs[lineId] === true;
+};
 
 /**
  * Ask for permission to show local notifications. Call once at app start
@@ -209,6 +284,10 @@ export async function diffAndNotifyLines(
     return;
   }
 
+  // Read per-line subscriptions so we only ping for the lines the user
+  // actually cares about (with the "no explicit subs = all lines" default).
+  const lineSubs = await loadLineSubscriptions();
+
   const raw = await safeGet(STORAGE_KEY_LINES);
   let prev: Record<string, string> = {};
   if (raw) {
@@ -226,12 +305,13 @@ export async function diffAndNotifyLines(
     const after = l.severityBucket;
     if (before === after) continue;
 
-    // Only ping for transitions INTO closed/severe — recoveries can stay quiet.
+    // Only ping for transitions INTO closed/severe — recoveries stay quiet.
     const escalated =
       (after === 'closed' && before !== 'closed') ||
       (after === 'severe' && before !== 'severe' && before !== 'closed');
     if (!escalated) continue;
     if (isFirstRun) continue;
+    if (!isLineSubscribed(l.id, lineSubs)) continue;
 
     await fire(
       `${l.name}: ${l.statusDescription}`,

@@ -1,8 +1,14 @@
-import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import React, { useEffect, useRef } from 'react';
+import { Animated, Image, StyleSheet, Text, View } from 'react-native';
 
 import { colors } from '@/theme/colors';
 import type { PinDescriptor } from '@/utils/eventIcons';
+
+// Resolved at bundle time. The asset is a 90x110 transparent PNG — the
+// DriveIQ pin-shaped brand mark with the brain glyph inside.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const LOGO = require('../../assets/driveiq-logo.png');
 
 interface EventMarkerProps {
   /** Descriptor that decides whether the pin shows a sport glyph or the
@@ -11,64 +17,63 @@ interface EventMarkerProps {
   selected?: boolean;
 }
 
+/** Scale the pin grows to when selected. */
+const SELECTED_SCALE = 1.28;
+
 /**
  * Custom map pin.
  *
- * - Sport events: a coloured-bubble pin with a sport-specific glyph
- *   (⚽ 🏉 🏈 🏏 🏀 🎾 etc.) so the kind of fixture reads at a glance.
- * - Everything else: the DriveIQ brand mark on a category-accent bubble.
- *   The mark is a compact "DQ" monogram rendered in the brand blue, which
- *   keeps the pin instantly recognisable as a DriveIQ event without
- *   shipping an additional PNG asset.
+ * Both variants are now a coloured-ring "bubble" so the category colour reads
+ * as an OUTLINE around the mark (per design feedback — the old loose dot is
+ * gone):
+ *   - Sport events: the ring holds a sport-specific glyph (⚽ 🏉 🏈 🏏 🏀 🎾 🏇…).
+ *   - Everything else: the ring holds the DriveIQ brand logo.
+ * Featured (curated) events get a gold ring plus a small star badge so big
+ * one-offs like Royal Ascot stand out from API events.
+ *
+ * Selecting a pin springs it up to {@link SELECTED_SCALE} and eases back down
+ * when deselected — a clear "pop" so the tapped event is obvious. The scale
+ * lives on a single Animated.View so the base raster never changes size while
+ * frozen (EventPin re-enables tracking only for the animation window).
  */
 export function EventMarker({ descriptor, selected = false }: EventMarkerProps) {
+  const scale = useRef(new Animated.Value(selected ? SELECTED_SCALE : 1)).current;
+
+  useEffect(() => {
+    Animated.spring(scale, {
+      toValue: selected ? SELECTED_SCALE : 1,
+      useNativeDriver: true,
+      friction: 7,
+      tension: 120,
+    }).start();
+  }, [selected, scale]);
+
   const accent = descriptor.color;
+  const featured = descriptor.featured ?? false;
 
   return (
-    <View style={styles.container}>
-      <View
-        style={[
-          styles.bubble,
-          { borderColor: accent },
-          selected && styles.bubbleSelected,
-        ]}
-      >
-        {descriptor.kind === 'glyph' ? (
-          <Text style={[styles.glyph, selected && styles.glyphSelected]}>
-            {descriptor.icon}
-          </Text>
-        ) : (
-          <DriveIQMark selected={selected} />
-        )}
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <View style={styles.container}>
+        <View style={[styles.bubble, { borderColor: accent }]}>
+          {descriptor.kind === 'glyph' ? (
+            <Text style={styles.glyph}>{descriptor.icon}</Text>
+          ) : (
+            <Image
+              source={LOGO}
+              resizeMode="contain"
+              style={styles.logo}
+              accessibilityIgnoresInvertColors
+            />
+          )}
+          {featured ? (
+            <View style={[styles.star, { backgroundColor: accent }]}>
+              <Ionicons name="star" size={9} color={colors.textOnPrimary} />
+            </View>
+          ) : null}
+        </View>
+        <View style={[styles.tail, { borderTopColor: accent }]} />
       </View>
-      <View style={[styles.tail, { borderTopColor: accent }]} />
-    </View>
-  );
-}
-
-/**
- * Compact DriveIQ brand mark. A blue pill with a white "DQ" monogram —
- * a miniature of the brand pill that sits at the top of the map screen,
- * so users immediately associate the pin with the DriveIQ identity.
- */
-function DriveIQMark({ selected }: { selected: boolean }) {
-  return (
-    <View
-      style={[
-        markStyles.pill,
-        selected && markStyles.pillSelected,
-      ]}
-    >
-      <Text
-        style={[
-          markStyles.text,
-          selected && markStyles.textSelected,
-        ]}
-        numberOfLines={1}
-      >
-        DQ
-      </Text>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -78,31 +83,42 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   bubble: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     borderWidth: 3,
     backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
+    // Single soft shadow on the bubble only. Keeping shadow off the inner
+    // image/glyph avoids the per-frame shadow recompute that makes map
+    // markers shimmer.
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 5,
   },
-  bubbleSelected: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    borderWidth: 4,
-  },
   glyph: {
     fontSize: 20,
     textAlign: 'center',
   },
-  glyphSelected: {
-    fontSize: 24,
+  // The brand mark sits inside the ring, slightly inset.
+  logo: {
+    width: 24,
+    height: 29,
+  },
+  star: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: colors.surface,
   },
   tail: {
     width: 0,
@@ -113,31 +129,5 @@ const styles = StyleSheet.create({
     borderTopWidth: 9,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-  },
-});
-
-const markStyles = StyleSheet.create({
-  pill: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 6,
-    minWidth: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pillSelected: {
-    paddingHorizontal: 7,
-    paddingVertical: 4,
-    minWidth: 26,
-  },
-  text: {
-    color: colors.textOnPrimary,
-    fontWeight: '900',
-    fontSize: 11,
-    letterSpacing: 0.6,
-  },
-  textSelected: {
-    fontSize: 13,
   },
 });

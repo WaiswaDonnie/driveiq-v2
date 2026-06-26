@@ -41,7 +41,7 @@ const LAYERS: LayerDef[] = [
   {
     key: 'traffic',
     label: 'Traffic',
-    description: 'Live road incidents from TfL',
+    description: 'Live road flow + incidents (TfL & Highways)',
     icon: 'warning',
     color: '#F97316',
   },

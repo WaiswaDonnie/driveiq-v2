@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Modal,
   Pressable,
   ScrollView,
@@ -13,11 +14,15 @@ import {
 import { colors } from '@/theme/colors';
 import {
   ensurePermission,
+  loadLineSubscriptions,
   loadPrefs,
+  saveLineSubscriptions,
   savePrefs,
+  type LineSubscriptions,
   type NotificationChannel,
   type NotificationPrefs,
 } from '@/services/notifications';
+import { fetchLineStatuses, type LineStatus } from '@/services/tflLines';
 
 interface Props {
   visible: boolean;
@@ -57,11 +62,22 @@ const ROWS: Row[] = [
 
 export function NotificationSettingsPanel({ visible, onClose }: Props) {
   const [prefs, setPrefs] = useState<NotificationPrefs | null>(null);
+  const [lines, setLines] = useState<LineStatus[]>([]);
+  const [lineSubs, setLineSubs] = useState<LineSubscriptions>({});
+  const [linesLoading, setLinesLoading] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
     loadPrefs().then(setPrefs);
+    loadLineSubscriptions().then(setLineSubs);
     ensurePermission();
+
+    // Fetch the live line list so the per-line toggle column always reflects
+    // every currently-active TfL line (new operators show up automatically).
+    setLinesLoading(true);
+    fetchLineStatuses()
+      .then(setLines)
+      .finally(() => setLinesLoading(false));
   }, [visible]);
 
   if (!visible) return null;
@@ -72,6 +88,20 @@ export function NotificationSettingsPanel({ visible, onClose }: Props) {
     setPrefs(next);
     savePrefs(next);
   };
+
+  const toggleLine = (lineId: string) => {
+    const next: LineSubscriptions = { ...lineSubs };
+    next[lineId] = !next[lineId];
+    // Drop the key entirely when toggled off so the "empty = all lines"
+    // default keeps working once the user clears every line.
+    if (!next[lineId]) delete next[lineId];
+    setLineSubs(next);
+    saveLineSubscriptions(next);
+  };
+
+  // True if the user has opted into at least one specific line — drives
+  // the "Following all lines by default" hint state.
+  const anyLineExplicit = Object.values(lineSubs).some(Boolean);
 
   return (
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
@@ -111,6 +141,46 @@ export function NotificationSettingsPanel({ visible, onClose }: Props) {
               />
             </View>
           ))}
+
+          {/* Per-line subscription list. Only revealed when "Train & tube
+              disruptions" is on — otherwise the toggles would do nothing. */}
+          {prefs?.['line-closures'] ? (
+            <View style={styles.linesBlock}>
+              <Text style={styles.linesHeader}>Subscribed lines</Text>
+              <Text style={styles.linesSubheader}>
+                {anyLineExplicit
+                  ? 'Pings only fire for the lines you’ve toggled on.'
+                  : 'Following all lines by default. Toggle individual ones to follow only those.'}
+              </Text>
+
+              {linesLoading && lines.length === 0 ? (
+                <View style={styles.linesLoading}>
+                  <ActivityIndicator color={colors.primary} />
+                  <Text style={styles.linesLoadingText}>Loading lines…</Text>
+                </View>
+              ) : null}
+
+              {lines.map((l) => {
+                const subscribed = anyLineExplicit
+                  ? !!lineSubs[l.id]
+                  : true;
+                return (
+                  <View key={`${l.modeName}-${l.id}`} style={styles.lineRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.lineRowName}>{l.name}</Text>
+                      <Text style={styles.lineRowMode}>{l.modeName}</Text>
+                    </View>
+                    <Switch
+                      value={subscribed}
+                      onValueChange={() => toggleLine(l.id)}
+                      trackColor={{ false: colors.border, true: colors.primary }}
+                      thumbColor={colors.surface}
+                    />
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
         </ScrollView>
       </View>
     </Modal>
@@ -178,5 +248,53 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: 3,
     lineHeight: 17,
+  },
+  linesBlock: {
+    marginTop: 4,
+    paddingHorizontal: 4,
+  },
+  linesHeader: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.textSecondary,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  linesSubheader: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginBottom: 10,
+    lineHeight: 17,
+    fontStyle: 'italic',
+  },
+  linesLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+  },
+  linesLoadingText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+  },
+  lineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  lineRowName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  lineRowMode: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginTop: 2,
+    letterSpacing: 0.3,
   },
 });

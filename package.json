@@ -1,6 +1,6 @@
 {
   "name": "driveiq",
-  "version": "5.0.0",
+  "version": "5.0.2",
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
@@ -10,14 +10,17 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "^55.0.25",
     "expo-build-properties": "~55.0.14",
     "expo-constants": "~55.0.16",
     "expo-linking": "~55.0.15",
     "expo-location": "~55.1.10",
+    "expo-notifications": "~55.0.23",
     "expo-router": "~55.0.15",
     "expo-status-bar": "~55.0.6",
     "expo-system-ui": "~55.0.18",
+    "firebase": "^12.4.0",
     "react": "19.2.0",
     "react-native": "0.83.6",
     "react-native-gesture-handler": "~2.30.0",

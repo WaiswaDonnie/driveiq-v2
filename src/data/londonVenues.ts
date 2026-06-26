@@ -14,53 +14,218 @@ export interface LondonPlace {
   venue: string;
   latitude: number;
   longitude: number;
+  /**
+   * TheSportsDB `idVenue` for this place. When populated, the new sportsdb
+   * service queries `/api/v2/json/schedule/next/venue/{id}` for upcoming
+   * events of any sport at this venue — that's how we surface fixtures
+   * without enumerating every league.
+   *
+   * Run `node scripts/resolve-venue-ids.mjs` once with your Premium key to
+   * auto-fill these. Any venue left as `null` is silently skipped by the
+   * fetch loop (it still works as a coordinate-resolution fallback).
+   */
+  sportsdbVenueId?: number | null;
 }
 
 const VENUES = {
   // ── Football ────────────────────────────────────────────────────────
-  emirates: { venue: 'Emirates Stadium', latitude: 51.5549, longitude: -0.1084 },
-  stamfordBridge: { venue: 'Stamford Bridge', latitude: 51.4816, longitude: -0.1909 },
-  tottenham: { venue: 'Tottenham Hotspur Stadium', latitude: 51.6043, longitude: -0.0664 },
-  londonStadium: { venue: 'London Stadium', latitude: 51.5386, longitude: -0.0166 },
-  selhurst: { venue: 'Selhurst Park', latitude: 51.3983, longitude: -0.0855 },
-  cravenCottage: { venue: 'Craven Cottage', latitude: 51.475, longitude: -0.2216 },
-  brentford: { venue: 'Gtech Community Stadium', latitude: 51.4906, longitude: -0.2885 },
-  qpr: { venue: 'Loftus Road', latitude: 51.5093, longitude: -0.2326 },
-  millwall: { venue: 'The Den', latitude: 51.4859, longitude: -0.0509 },
-  charlton: { venue: 'The Valley', latitude: 51.4865, longitude: 0.0364 },
-  leytonOrient: { venue: 'Brisbane Road', latitude: 51.5601, longitude: -0.0125 },
-  afcWimbledon: { venue: 'Plough Lane', latitude: 51.4318, longitude: -0.1996 },
-  barnet: { venue: 'The Hive Stadium', latitude: 51.6057, longitude: -0.2942 },
-  suttonUnited: { venue: 'Gander Green Lane', latitude: 51.3669, longitude: -0.2017 },
-  daghamRedbridge: { venue: 'Victoria Road', latitude: 51.5453, longitude: 0.1357 },
+  emirates: {
+    venue: 'Emirates Stadium',
+    latitude: 51.5549,
+    longitude: -0.1084,
+    sportsdbVenueId: null,
+  },
+  stamfordBridge: {
+    venue: 'Stamford Bridge',
+    latitude: 51.4816,
+    longitude: -0.1909,
+    sportsdbVenueId: null,
+  },
+  tottenham: {
+    venue: 'Tottenham Hotspur Stadium',
+    latitude: 51.6043,
+    longitude: -0.0664,
+    sportsdbVenueId: null,
+  },
+  londonStadium: {
+    venue: 'London Stadium',
+    latitude: 51.5386,
+    longitude: -0.0166,
+    sportsdbVenueId: null,
+  },
+  selhurst: {
+    venue: 'Selhurst Park',
+    latitude: 51.3983,
+    longitude: -0.0855,
+    sportsdbVenueId: null,
+  },
+  cravenCottage: {
+    venue: 'Craven Cottage',
+    latitude: 51.475,
+    longitude: -0.2216,
+    sportsdbVenueId: null,
+  },
+  brentford: {
+    venue: 'Gtech Community Stadium',
+    latitude: 51.4906,
+    longitude: -0.2885,
+    sportsdbVenueId: null,
+  },
+  qpr: {
+    venue: 'Loftus Road',
+    latitude: 51.5093,
+    longitude: -0.2326,
+    sportsdbVenueId: null,
+  },
+  millwall: {
+    venue: 'The Den',
+    latitude: 51.4859,
+    longitude: -0.0509,
+    sportsdbVenueId: null,
+  },
+  charlton: {
+    venue: 'The Valley',
+    latitude: 51.4865,
+    longitude: 0.0364,
+    sportsdbVenueId: null,
+  },
+  leytonOrient: {
+    venue: 'Brisbane Road',
+    latitude: 51.5601,
+    longitude: -0.0125,
+    sportsdbVenueId: null,
+  },
+  afcWimbledon: {
+    venue: 'Plough Lane',
+    latitude: 51.4318,
+    longitude: -0.1996,
+    sportsdbVenueId: null,
+  },
+  barnet: {
+    venue: 'The Hive Stadium',
+    latitude: 51.6057,
+    longitude: -0.2942,
+    sportsdbVenueId: null,
+  },
+  suttonUnited: {
+    venue: 'Gander Green Lane',
+    latitude: 51.3669,
+    longitude: -0.2017,
+    sportsdbVenueId: null,
+  },
+  daghamRedbridge: {
+    venue: 'Victoria Road',
+    latitude: 51.5453,
+    longitude: 0.1357,
+    sportsdbVenueId: null,
+  },
 
   // ── Cricket ─────────────────────────────────────────────────────────
-  lords: { venue: "Lord's Cricket Ground", latitude: 51.5294, longitude: -0.1727 },
-  oval: { venue: 'The Oval', latitude: 51.4837, longitude: -0.1145 },
+  lords: {
+    venue: "Lord's Cricket Ground",
+    latitude: 51.5294,
+    longitude: -0.1727,
+    sportsdbVenueId: null,
+  },
+  oval: {
+    venue: 'The Oval',
+    latitude: 51.4837,
+    longitude: -0.1145,
+    sportsdbVenueId: null,
+  },
 
   // ── Rugby Union ─────────────────────────────────────────────────────
-  twickenham: { venue: 'Twickenham Stadium', latitude: 51.4561, longitude: -0.3415 },
-  saracens: { venue: 'StoneX Stadium', latitude: 51.6191, longitude: -0.2244 },
-  harlequins: { venue: 'The Stoop', latitude: 51.4538, longitude: -0.346 },
+  twickenham: {
+    venue: 'Twickenham Stadium',
+    latitude: 51.4561,
+    longitude: -0.3415,
+    sportsdbVenueId: null,
+  },
+  saracens: {
+    venue: 'StoneX Stadium',
+    latitude: 51.6191,
+    longitude: -0.2244,
+    sportsdbVenueId: null,
+  },
+  harlequins: {
+    venue: 'The Stoop',
+    latitude: 51.4538,
+    longitude: -0.346,
+    sportsdbVenueId: null,
+  },
 
   // ── Tennis ──────────────────────────────────────────────────────────
-  wimbledon: { venue: 'All England Lawn Tennis Club', latitude: 51.4348, longitude: -0.2138 },
-  queens: { venue: "The Queen's Club", latitude: 51.4886, longitude: -0.2122 },
+  wimbledon: {
+    venue: 'All England Lawn Tennis Club',
+    latitude: 51.4348,
+    longitude: -0.2138,
+    sportsdbVenueId: null,
+  },
+  queens: {
+    venue: "The Queen's Club",
+    latitude: 51.4886,
+    longitude: -0.2122,
+    sportsdbVenueId: null,
+  },
 
   // ── Multi-sport / arenas ────────────────────────────────────────────
-  wembley: { venue: 'Wembley Stadium', latitude: 51.556, longitude: -0.2796 },
-  o2: { venue: 'The O2 Arena', latitude: 51.503, longitude: 0.003 },
-  copperBox: { venue: 'Copper Box Arena', latitude: 51.5462, longitude: -0.0153 },
-  ovoWembley: { venue: 'OVO Arena Wembley', latitude: 51.5586, longitude: -0.2826 },
+  wembley: {
+    venue: 'Wembley Stadium',
+    latitude: 51.556,
+    longitude: -0.2796,
+    // Pre-filled — verified against TheSportsDB lookupvenue.php?id=16163
+    sportsdbVenueId: 16163,
+  },
+  o2: {
+    venue: 'The O2 Arena',
+    latitude: 51.503,
+    longitude: 0.003,
+    sportsdbVenueId: null,
+  },
+  copperBox: {
+    venue: 'Copper Box Arena',
+    latitude: 51.5462,
+    longitude: -0.0153,
+    sportsdbVenueId: null,
+  },
+  ovoWembley: {
+    venue: 'OVO Arena Wembley',
+    latitude: 51.5586,
+    longitude: -0.2826,
+    sportsdbVenueId: null,
+  },
   crystalPalaceSC: {
     venue: 'Crystal Palace National Sports Centre',
     latitude: 51.418,
     longitude: -0.0735,
+    sportsdbVenueId: null,
   },
-  leeValleyVeloPark: { venue: 'Lee Valley VeloPark', latitude: 51.5471, longitude: -0.0124 },
-  alexandraPalace: { venue: 'Alexandra Palace', latitude: 51.5963, longitude: -0.1107 },
-  excel: { venue: 'ExCeL London', latitude: 51.5079, longitude: 0.0297 },
+  leeValleyVeloPark: {
+    venue: 'Lee Valley VeloPark',
+    latitude: 51.5471,
+    longitude: -0.0124,
+    sportsdbVenueId: null,
+  },
+  alexandraPalace: {
+    venue: 'Alexandra Palace',
+    latitude: 51.5963,
+    longitude: -0.1107,
+    sportsdbVenueId: null,
+  },
+  excel: {
+    venue: 'ExCeL London',
+    latitude: 51.5079,
+    longitude: 0.0297,
+    sportsdbVenueId: null,
+  },
 } satisfies Record<string, LondonPlace>;
+
+/**
+ * Flat array of every distinct London venue, used by the sportsdb fetch loop
+ * to iterate. Deduped against the keyed lookup table above so the same venue
+ * isn't queried twice.
+ */
+export const LONDON_VENUE_LIST: LondonPlace[] = Object.values(VENUES);
 
 /**
  * Lookup table keyed by lower-case names. Includes both team names and

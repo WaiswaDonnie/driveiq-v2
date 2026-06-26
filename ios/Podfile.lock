@@ -1,4 +1,6 @@
 PODS:
+  - EXApplication (55.0.15):
+    - ExpoModulesCore
   - EXConstants (55.0.16):
     - ExpoModulesCore
   - Expo (55.0.25):
@@ -81,6 +83,8 @@ PODS:
     - React-Core
     - React-runtimescheduler
     - ReactCommon
+  - ExpoNotifications (55.0.23):
+    - ExpoModulesCore
   - ExpoRouter (55.0.15):
     - ExpoModulesCore
     - RNScreens
@@ -2032,6 +2036,28 @@ PODS:
     - React-utils (= 0.83.6)
     - ReactNativeDependencies
   - ReactNativeDependencies (0.83.6)
+  - RNCAsyncStorage (2.2.0):
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - RNGestureHandler (2.30.1):
     - hermes-engine
     - RCTRequired
@@ -2261,6 +2287,7 @@ PODS:
   - Yoga (0.0.0)
 
 DEPENDENCIES:
+  - EXApplication (from `../node_modules/expo-application/ios`)
   - EXConstants (from `../node_modules/expo-constants/ios`)
   - Expo (from `../node_modules/expo`)
   - ExpoAsset (from `../node_modules/expo-asset/ios`)
@@ -2275,6 +2302,7 @@ DEPENDENCIES:
   - "ExpoLogBox (from `../node_modules/@expo/log-box`)"
   - ExpoModulesCore (from `../node_modules/expo-modules-core`)
   - ExpoModulesJSI (from `../node_modules/expo-modules-core`)
+  - ExpoNotifications (from `../node_modules/expo-notifications/ios`)
   - ExpoRouter (from `../node_modules/expo-router/ios`)
   - ExpoSymbols (from `../node_modules/expo-symbols/ios`)
   - ExpoSystemUI (from `../node_modules/expo-system-ui/ios`)
@@ -2353,6 +2381,7 @@ DEPENDENCIES:
   - ReactCodegen (from `build/generated/ios/ReactCodegen`)
   - ReactCommon/turbomodule/core (from `../node_modules/react-native/ReactCommon`)
   - ReactNativeDependencies (from `../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec`)
+  - "RNCAsyncStorage (from `../node_modules/@react-native-async-storage/async-storage`)"
   - RNGestureHandler (from `../node_modules/react-native-gesture-handler`)
   - RNReanimated (from `../node_modules/react-native-reanimated`)
   - RNScreens (from `../node_modules/react-native-screens`)
@@ -2372,6 +2401,8 @@ SPEC REPOS:
     - SDWebImageWebPCoder
 
 EXTERNAL SOURCES:
+  EXApplication:
+    :path: "../node_modules/expo-application/ios"
   EXConstants:
     :path: "../node_modules/expo-constants/ios"
   Expo:
@@ -2400,6 +2431,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-modules-core"
   ExpoModulesJSI:
     :path: "../node_modules/expo-modules-core"
+  ExpoNotifications:
+    :path: "../node_modules/expo-notifications/ios"
   ExpoRouter:
     :path: "../node_modules/expo-router/ios"
   ExpoSymbols:
@@ -2555,6 +2588,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon"
   ReactNativeDependencies:
     :podspec: "../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec"
+  RNCAsyncStorage:
+    :path: "../node_modules/@react-native-async-storage/async-storage"
   RNGestureHandler:
     :path: "../node_modules/react-native-gesture-handler"
   RNReanimated:
@@ -2567,6 +2602,7 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon/yoga"
 
 SPEC CHECKSUMS:
+  EXApplication: c7f6775d5a64bf118b8ecaf01cf57aeaa0adef56
   EXConstants: 255fd9f72f94bfccaed1d161edac04a552baa8d9
   Expo: 1132fd6d65c90e40f772114e0777b83faf4b7571
   ExpoAsset: 9d035bcc19d8688e9ddb2c579c50c8f83824188e
@@ -2581,6 +2617,7 @@ SPEC CHECKSUMS:
   ExpoLogBox: 81d123959f6f1fc9926e4298bbc439c31b1b07ad
   ExpoModulesCore: 006848bb91ed5536abc8af75d524002fc16f87b9
   ExpoModulesJSI: ae8ebeef19be77aeaf25f2655a5303755ef7178d
+  ExpoNotifications: 46b51dab5457ef72d90fafed40b67cbf54789a20
   ExpoRouter: fec27e395a62bf5e6407119e15eaa15e5b926aba
   ExpoSymbols: cba65054b7ebee6c2ee8dc51e7c37718ba28323d
   ExpoSystemUI: cac603a35feeac95fd81c5983e42b18c6e818826
@@ -2663,6 +2700,7 @@ SPEC CHECKSUMS:
   ReactCodegen: 136d44c61dbc89b4f6f4572bad5ef4a938d326b3
   ReactCommon: 5887143a2b315f8cfc06648302600330a59a4fc4
   ReactNativeDependencies: 9ea8430aa84e1cd1248eb3b591e12f9b8309eb89
+  RNCAsyncStorage: 0574155b95b96b89a51717c4dd42fb6057926bbc
   RNGestureHandler: 66318d89b6d6663e8c31060a523d73c0e5950bce
   RNReanimated: 47f895fbfed87f671535d256c22c15489e5d0a25
   RNScreens: f3304227860d3ea23349c525b1c5dd0a115f0dcc

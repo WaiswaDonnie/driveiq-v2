@@ -2,16 +2,19 @@ import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { colors } from '@/theme/colors';
-import { FILTER_LABELS, type FilterKey } from '@/utils/dateFilters';
+import type { FilterChip, FilterKey } from '@/utils/dateFilters';
 
 interface FilterBarProps {
   active: FilterKey;
   onChange: (next: FilterKey) => void;
+  /** Ordered chips to render — presets followed by future-day chips. */
+  chips: FilterChip[];
+  /** Optional event counts per filter — rendered as "(N)" next to the label
+   *  so users can see at a glance whether tapping a chip is worthwhile. */
+  counts?: Partial<Record<FilterKey, number>>;
 }
 
-const ORDER: FilterKey[] = ['all', 'today', 'tomorrow', 'next3'];
-
-export function FilterBar({ active, onChange }: FilterBarProps) {
+export function FilterBar({ active, onChange, chips, counts }: FilterBarProps) {
   return (
     <View style={styles.wrap} pointerEvents="box-none">
       <ScrollView
@@ -19,8 +22,9 @@ export function FilterBar({ active, onChange }: FilterBarProps) {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.row}
       >
-        {ORDER.map((key) => {
+        {chips.map(({ key, label }) => {
           const isActive = key === active;
+          const count = counts?.[key];
           return (
             <Pressable
               key={key}
@@ -28,9 +32,22 @@ export function FilterBar({ active, onChange }: FilterBarProps) {
               style={[styles.chip, isActive && styles.chipActive]}
               accessibilityRole="button"
               accessibilityState={{ selected: isActive }}
+              accessibilityLabel={
+                count != null ? `${label}, ${count} events` : label
+              }
             >
               <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
-                {FILTER_LABELS[key]}
+                {label}
+                {count != null ? (
+                  <Text
+                    style={[
+                      styles.chipCount,
+                      isActive && styles.chipCountActive,
+                    ]}
+                  >
+                    {' '}({count})
+                  </Text>
+                ) : null}
               </Text>
             </Pressable>
           );
@@ -72,5 +89,13 @@ const styles = StyleSheet.create({
   },
   chipTextActive: {
     color: colors.textOnPrimary,
+  },
+  chipCount: {
+    fontWeight: '500',
+    color: colors.textSecondary,
+  },
+  chipCountActive: {
+    color: colors.textOnPrimary,
+    opacity: 0.85,
   },
 });
