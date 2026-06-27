@@ -22,6 +22,9 @@ import MapView, {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AirportsPanel } from '@/components/AirportsPanel';
+import { AirportPin } from '@/components/AirportPin';
+import { AirportFlightsSheet } from '@/components/AirportFlightsSheet';
+import { AIRPORTS, type Airport } from '@/services/airports';
 import { CategoryFilterBar } from '@/components/CategoryFilterBar';
 import { ConnectionsPanel } from '@/components/ConnectionsPanel';
 import { EventDetailsSheet } from '@/components/EventDetailsSheet';
@@ -166,6 +169,8 @@ export default function MapScreen() {
   const [layersOpen, setLayersOpen] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [airportsOpen, setAirportsOpen] = useState(false);
+  // Airport whose live flights board is open (tapped an airport map pin).
+  const [flightsAirport, setFlightsAirport] = useState<Airport | null>(null);
   const [notifSettingsOpen, setNotifSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -927,6 +932,12 @@ export default function MapScreen() {
             />
           ))}
 
+        {/* Airport pins (LHR/LGW/LTN/STN/LCY) → tap opens the live flights board. */}
+        {!destination &&
+          AIRPORTS.map((a) => (
+            <AirportPin key={`airport-${a.id}`} airport={a} onPress={setFlightsAirport} />
+          ))}
+
         {!destination &&
           reports.map((report) => (
             <Marker
@@ -1231,6 +1242,19 @@ export default function MapScreen() {
           setNotifSettingsOpen(false);
           // Re-read prefs so the next poll picks up the user's changes.
           prefsRef.current = await loadPrefs();
+        }}
+      />
+
+      <AirportFlightsSheet
+        airport={flightsAirport}
+        onClose={() => setFlightsAirport(null)}
+        onNavigate={(airport) => {
+          setFlightsAirport(null);
+          setPickerDestination({
+            label: airport.name,
+            latitude: airport.latitude,
+            longitude: airport.longitude,
+          });
         }}
       />
 

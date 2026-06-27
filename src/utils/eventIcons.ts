@@ -102,6 +102,12 @@ export function pinDescriptorFor(event: AppEvent): PinDescriptor {
       return { kind: 'glyph', icon: '🏉', color: accent, featured };
     if (hay.includes('box'))
       return { kind: 'glyph', icon: '🥊', color: accent, featured };
+    if (hay.includes('wrestl') || hay.includes('wwe') || hay.includes('wwf'))
+      return { kind: 'glyph', icon: '🤼', color: accent, featured };
+    if (hay.includes('dart'))
+      return { kind: 'glyph', icon: '🎯', color: accent, featured };
+    if (hay.includes('esport') || hay.includes('e-sport') || hay.includes('gaming'))
+      return { kind: 'glyph', icon: '🎮', color: accent, featured };
     if (hay.includes('run') || hay.includes('marathon'))
       return { kind: 'glyph', icon: '🏃', color: accent, featured };
     if (hay.includes('hockey'))

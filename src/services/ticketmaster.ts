@@ -1,3 +1,4 @@
+import { findLondonPlace } from '@/data/londonVenues';
 import type { AppEvent, EventCategory } from '@/types/event';
 import type { DateRange } from '@/utils/dateFilters';
 import { defaultEndsAt } from '@/utils/duration';
@@ -64,6 +65,19 @@ const toIsoUtc = (d: Date): string => {
   const x = new Date(d);
   x.setMilliseconds(0);
   return x.toISOString().replace(/\.\d{3}Z$/, 'Z');
+};
+
+// Ticketmaster files certain arena entertainment under its "Sports" segment
+// even though they aren't team-sport fixtures and aren't covered by ESPN /
+// football-data (e.g. WWE/wrestling, darts, e-sports). We let ONLY these
+// genres through from Ticketmaster's Sports segment; real team sports
+// (football, rugby, cricket, boxing, basketball…) still come solely from the
+// football APIs to avoid duplicates. Match is substring, case-insensitive.
+const ENTERTAINMENT_SPORTS_GENRES = ['wrestling', 'darts', 'e-sports', 'esports'];
+
+const isAllowedEntertainmentSport = (genre?: string): boolean => {
+  const g = (genre ?? '').toLowerCase();
+  return ENTERTAINMENT_SPORTS_GENRES.some((k) => g.includes(k));
 };
 
 const classify = (segment?: string): { category: EventCategory; sub?: string } => {
@@ -147,21 +161,36 @@ export async function fetchTicketmasterLondon(range: DateRange): Promise<AppEven
   const out: AppEvent[] = [];
   for (const e of events) {
     const segName = e.classifications?.[0]?.segment?.name ?? 'Unknown';
+    const genreName = e.classifications?.[0]?.genre?.name ?? '';
     segmentCounts[segName] = (segmentCounts[segName] ?? 0) + 1;
 
-    // Sports are owned by the football APIs (ESPN + football-data).
-    // Ticketmaster never contributes sports pins, even during off-season.
-    if (segName.toLowerCase() === 'sports') {
+    // Team sports are owned by the football APIs (ESPN + football-data), so we
+    // drop Ticketmaster's Sports segment — EXCEPT for arena entertainment that
+    // those feeds don't carry (WWE/wrestling, darts, e-sports), which we let
+    // through so big O2/Wembley dates like WWE Monday Night Raw still show.
+    const isSports = segName.toLowerCase() === 'sports';
+    if (isSports && !isAllowedEntertainmentSport(genreName)) {
       droppedSports++;
       continue;
     }
 
     const venue = e._embedded?.venues?.[0];
-    const lat = toNum(venue?.location?.latitude);
-    const lon = toNum(venue?.location?.longitude);
+    let lat = toNum(venue?.location?.latitude);
+    let lon = toNum(venue?.location?.longitude);
+
+    // Ticketmaster sometimes omits coordinates for big, well-known rooms (the
+    // O2, Wembley, OVO Arena, Tottenham Hotspur Stadium, Alexandra Palace…).
+    // Rather than drop those marquee events, resolve the venue/city name
+    // against our curated London venue table. Only drop if that fails too.
     if (lat == null || lon == null) {
-      droppedNoCoords++;
-      continue;
+      const place = findLondonPlace(venue?.name, venue?.city?.name);
+      if (place) {
+        lat = place.latitude;
+        lon = place.longitude;
+      } else {
+        droppedNoCoords++;
+        continue;
+      }
     }
 
     const startsAt = e.dates?.start?.dateTime;
@@ -170,9 +199,20 @@ export async function fetchTicketmasterLondon(range: DateRange): Promise<AppEven
       continue;
     }
 
+    // Allowed entertainment-sports keep a 'sports' category (so they sit under
+    // the Sports filter + get a sport glyph); everything else uses the normal
+    // non-sports classification.
     const cls = e.classifications?.[0];
-    const { category, sub } = classify(cls?.segment?.name);
-    const subCategory = cls?.genre?.name ?? sub;
+    let category: EventCategory;
+    let subCategory: string | undefined;
+    if (isSports) {
+      category = 'sports';
+      subCategory = genreName || 'Sports';
+    } else {
+      const c = classify(cls?.segment?.name);
+      category = c.category;
+      subCategory = cls?.genre?.name ?? c.sub;
+    }
 
     // Ticketmaster occasionally returns dates.end.dateTime for concerts and
     // festivals; otherwise fall back to a sane duration default keyed off
