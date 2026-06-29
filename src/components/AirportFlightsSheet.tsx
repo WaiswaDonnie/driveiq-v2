@@ -11,7 +11,9 @@ import {
   View,
 } from 'react-native';
 
-import type { Airport } from '@/services/airports';
+import { LineDetailSheet } from '@/components/LineDetailSheet';
+import type { Airport, ConnectionStatus } from '@/services/airports';
+import { fetchAirportConnectionStatuses } from '@/services/airports';
 import {
   fetchAirportFlights,
   type AirportFlight,
@@ -25,7 +27,14 @@ interface Props {
   onNavigate?: (airport: Airport) => void;
 }
 
-/** "2026-06-26 08:05+01:00" | "2026-06-26T08:05+01:00" → "08:05". */
+const SEVERITY_COLOR: Record<ConnectionStatus['severityBucket'], string> = {
+  good: '#26C281',
+  minor: '#FACC15',
+  severe: '#F97316',
+  closed: '#DC2626',
+};
+
+/** "2026-06-26 08:05+01:00" | "2026-06-26T08:05+01:00" -> "08:05". */
 function hhmm(local?: string): string {
   if (!local) return '--:--';
   const sep = local.includes('T') ? 'T' : ' ';
@@ -33,48 +42,86 @@ function hhmm(local?: string): string {
   return time.slice(0, 5) || '--:--';
 }
 
-function statusColor(f: AirportFlight): string {
+function flightStatusColor(f: AirportFlight): string {
   if (f.cancelled) return '#DC2626';
   if (f.delayed) return '#F97316';
   return '#26C281';
 }
 
 export function AirportFlightsSheet({ airport, onClose, onNavigate }: Props) {
+  const [conns, setConns] = useState<ConnectionStatus[]>([]);
+  const [connsLoading, setConnsLoading] = useState(false);
+  const [openConn, setOpenConn] = useState<ConnectionStatus | null>(null);
+
   const [flights, setFlights] = useState<AirportFlight[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [flightsLoading, setFlightsLoading] = useState(false);
+  const [flightsError, setFlightsError] = useState<string | null>(null);
   const [direction, setDirection] = useState<FlightDirection>('departure');
 
+  // Rail-link statuses for this airport (same source as the sidebar Airports tab).
   useEffect(() => {
     if (!airport) return;
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setFlights([]);
-    fetchAirportFlights(airport.id)
-      .then((res) => {
-        if (cancelled) return;
-        setFlights(res.flights);
-        if (res.error === 'no-key') {
-          setError('Live flights need an AeroDataBox API key (set EXPO_PUBLIC_AERODATABOX_API_KEY).');
-        } else if (res.error === 'rate-limited') {
-          setError('Flight data is rate limited right now — try again shortly.');
-        } else if (res.error === 'network' || res.error === 'http') {
-          setError('Couldn’t load flights. Pull up again to retry.');
-        }
+    setConnsLoading(true);
+    setConns([]);
+    fetchAirportConnectionStatuses()
+      .then((byAirport) => {
+        if (!cancelled) setConns(byAirport[airport.id] ?? []);
       })
       .catch(() => {
-        if (!cancelled) setError('Couldn’t load flights.');
+        if (!cancelled) setConns([]);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setConnsLoading(false);
       });
     return () => {
       cancelled = true;
     };
   }, [airport]);
 
-  const shown = useMemo(
+  // Live flights (Pro) for this airport.
+  useEffect(() => {
+    if (!airport) return;
+    let cancelled = false;
+    setFlightsLoading(true);
+    setFlightsError(null);
+    setFlights([]);
+    fetchAirportFlights(airport.id)
+      .then((res) => {
+        if (cancelled) return;
+        setFlights(res.flights);
+        if (res.error === 'no-key') {
+          setFlightsError('Live flights need an AeroDataBox API key (set EXPO_PUBLIC_AERODATABOX_API_KEY).');
+        } else if (res.error === 'rate-limited') {
+          setFlightsError('Flight data is rate limited right now. Try again shortly.');
+        } else if (res.error === 'http') {
+          if (res.status === 401 || res.status === 403) {
+            setFlightsError(
+              'AeroDataBox rejected the request (HTTP ' +
+                res.status +
+                '). The RapidAPI key likely isn’t subscribed to AeroDataBox, or your plan doesn’t include the airport flights endpoint. Subscribe to AeroDataBox on RapidAPI and try again.',
+            );
+          } else if (res.status === 404) {
+            setFlightsError('Flights endpoint not found (404). The airport code or request format needs a tweak.');
+          } else {
+            setFlightsError('Couldn’t load flights (HTTP ' + (res.status ?? '?') + '). Open again to retry.');
+          }
+        } else if (res.error === 'network') {
+          setFlightsError('Couldn’t reach the flights service. Check your connection and open again.');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setFlightsError('Couldn’t load flights.');
+      })
+      .finally(() => {
+        if (!cancelled) setFlightsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [airport]);
+
+  const shownFlights = useMemo(
     () => flights.filter((f) => f.direction === direction),
     [flights, direction],
   );
@@ -99,83 +146,117 @@ export function AirportFlightsSheet({ airport, onClose, onNavigate }: Props) {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>{airport.name}</Text>
-            <Text style={styles.subtitle}>{airport.iata} · Live flights</Text>
+            <Text style={styles.subtitle}>{airport.iata} · Rail links & live flights</Text>
           </View>
           <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button">
             <Ionicons name="close" size={26} color={colors.textSecondary} />
           </Pressable>
         </View>
 
-        {/* Paywall placeholder — gating logic is a stub until billing is wired. */}
-        <Pressable style={styles.proBanner} onPress={upgrade} accessibilityRole="button">
-          <Ionicons name="star" size={16} color={colors.primaryDark} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.proTitle}>DriveIQ Pro — Live flights</Text>
-            <Text style={styles.proBody}>Arrivals, departures, delays & cancellations</Text>
-          </View>
-          <View style={styles.proCta}>
-            <Text style={styles.proCtaText}>Subscribe</Text>
-          </View>
-        </Pressable>
-
-        {/* Arrivals / Departures toggle */}
-        <View style={styles.segment}>
-          {(['departure', 'arrival'] as FlightDirection[]).map((d) => {
-            const active = direction === d;
-            return (
-              <Pressable
-                key={d}
-                onPress={() => setDirection(d)}
-                style={[styles.segmentBtn, active && styles.segmentBtnActive]}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-              >
-                <Text style={[styles.segmentText, active && styles.segmentTextActive]}>
-                  {d === 'departure' ? 'Departures' : 'Arrivals'}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {onNavigate ? (
-          <Pressable
-            onPress={() => onNavigate(airport)}
-            style={styles.directionsBtn}
-            accessibilityRole="button"
-            accessibilityLabel={`Get directions to ${airport.name}`}
-          >
-            <Ionicons name="navigate" size={15} color={colors.textOnPrimary} />
-            <Text style={styles.directionsText}>Get directions</Text>
-          </Pressable>
-        ) : null}
-
         <ScrollView style={styles.body} contentContainerStyle={{ paddingBottom: 28 }}>
-          {loading && (
+          {onNavigate ? (
+            <Pressable
+              onPress={() => onNavigate(airport)}
+              style={styles.directionsBtn}
+              accessibilityRole="button"
+              accessibilityLabel={`Get directions to ${airport.name}`}
+            >
+              <Ionicons name="navigate" size={15} color={colors.textOnPrimary} />
+              <Text style={styles.directionsText}>Get directions</Text>
+            </Pressable>
+          ) : null}
+
+          {/* ── Rail links (live, same data as the sidebar Airports tab) ── */}
+          <Text style={styles.sectionLabel}>Rail links</Text>
+          {connsLoading ? (
+            <View style={styles.loading}>
+              <ActivityIndicator color={colors.primary} />
+              <Text style={styles.loadingText}>Loading status…</Text>
+            </View>
+          ) : conns.length === 0 ? (
+            <Text style={styles.empty}>No rail-link data right now.</Text>
+          ) : (
+            conns.map((c) => (
+              <Pressable
+                key={c.lineId}
+                style={({ pressed }) => [styles.connRow, pressed && styles.connRowPressed]}
+                onPress={() => setOpenConn(c)}
+                accessibilityRole="button"
+                accessibilityLabel={`Open details for ${c.label}`}
+              >
+                <Ionicons name="train" size={16} color={colors.textSecondary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.connLabel}>{c.label}</Text>
+                  {c.note ? <Text style={styles.connNote}>{c.note}</Text> : null}
+                  {c.reason ? (
+                    <Text style={styles.connReason} numberOfLines={2}>
+                      {c.reason.replace(/https?:\/\/\S+/gi, '').trim() || 'Tap for full details'}
+                    </Text>
+                  ) : null}
+                </View>
+                <View style={styles.connTrailing}>
+                  <View style={[styles.statusPill, { backgroundColor: SEVERITY_COLOR[c.severityBucket] }]}>
+                    <Text style={styles.statusText}>{c.statusDescription}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} style={{ marginTop: 4 }} />
+                </View>
+              </Pressable>
+            ))
+          )}
+
+          {/* ── Live flights (Pro) ── */}
+          <Pressable style={styles.proBanner} onPress={upgrade} accessibilityRole="button">
+            <Ionicons name="star" size={16} color={colors.primaryDark} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.proTitle}>DriveIQ Pro — Live flights</Text>
+              <Text style={styles.proBody}>Arrivals, departures, delays & cancellations</Text>
+            </View>
+            <View style={styles.proCta}>
+              <Text style={styles.proCtaText}>Subscribe</Text>
+            </View>
+          </Pressable>
+
+          <View style={styles.segment}>
+            {(['departure', 'arrival'] as FlightDirection[]).map((d) => {
+              const active = direction === d;
+              return (
+                <Pressable
+                  key={d}
+                  onPress={() => setDirection(d)}
+                  style={[styles.segmentBtn, active && styles.segmentBtnActive]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                >
+                  <Text style={[styles.segmentText, active && styles.segmentTextActive]}>
+                    {d === 'departure' ? 'Departures' : 'Arrivals'}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {flightsLoading && (
             <View style={styles.loading}>
               <ActivityIndicator color={colors.primary} />
               <Text style={styles.loadingText}>Loading flights…</Text>
             </View>
           )}
 
-          {!loading && error && <Text style={styles.error}>{error}</Text>}
+          {!flightsLoading && flightsError && <Text style={styles.error}>{flightsError}</Text>}
 
-          {!loading && !error && shown.length === 0 && (
-            <Text style={styles.empty}>No {direction === 'departure' ? 'departures' : 'arrivals'} in the next few hours.</Text>
+          {!flightsLoading && !flightsError && shownFlights.length === 0 && (
+            <Text style={styles.empty}>
+              No {direction === 'departure' ? 'departures' : 'arrivals'} in the next few hours.
+            </Text>
           )}
 
-          {!loading &&
-            shown.map((f) => (
-              <View key={f.id} style={styles.row}>
+          {!flightsLoading &&
+            shownFlights.map((f) => (
+              <View key={f.id} style={styles.flightRow}>
                 <View style={styles.timeCol}>
-                  <Text style={[styles.time, f.cancelled && styles.timeStruck]}>
-                    {hhmm(f.scheduledLocal)}
-                  </Text>
-                  {f.delayed && f.revisedLocal ? (
-                    <Text style={styles.revised}>{hhmm(f.revisedLocal)}</Text>
-                  ) : null}
+                  <Text style={[styles.time, f.cancelled && styles.timeStruck]}>{hhmm(f.scheduledLocal)}</Text>
+                  {f.delayed && f.revisedLocal ? <Text style={styles.revised}>{hhmm(f.revisedLocal)}</Text> : null}
                 </View>
-
                 <View style={{ flex: 1 }}>
                   <Text style={styles.route} numberOfLines={1}>
                     {direction === 'departure' ? 'To ' : 'From '}
@@ -188,9 +269,8 @@ export function AirportFlightsSheet({ airport, onClose, onNavigate }: Props) {
                     {f.terminal ? ` · T${f.terminal}` : ''}
                   </Text>
                 </View>
-
                 <View style={styles.statusCol}>
-                  <View style={[styles.statusPill, { backgroundColor: statusColor(f) }]}>
+                  <View style={[styles.statusPill, { backgroundColor: flightStatusColor(f) }]}>
                     <Text style={styles.statusText}>
                       {f.cancelled
                         ? 'Cancelled'
@@ -206,6 +286,14 @@ export function AirportFlightsSheet({ airport, onClose, onNavigate }: Props) {
             ))}
         </ScrollView>
       </View>
+
+      <LineDetailSheet
+        lineId={openConn?.lineId ?? null}
+        fallbackTitle={openConn?.label}
+        subtitle={openConn?.note}
+        initialSeverity={openConn?.severityBucket}
+        onClose={() => setOpenConn(null)}
+      />
     </Modal>
   );
 }
@@ -217,7 +305,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: '80%',
+    height: '82%',
     backgroundColor: colors.surface,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
@@ -242,12 +330,47 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   title: { fontSize: 18, fontWeight: '800', color: colors.textPrimary },
-  subtitle: { fontSize: 13, color: colors.textSecondary, marginTop: 2, letterSpacing: 0.5 },
+  subtitle: { fontSize: 13, color: colors.textSecondary, marginTop: 2, letterSpacing: 0.3 },
+  body: { marginTop: 12 },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.textSecondary,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginTop: 8,
+    marginBottom: 6,
+  },
+  directionsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginBottom: 6,
+    paddingVertical: 11,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+  },
+  directionsText: { color: colors.textOnPrimary, fontSize: 14, fontWeight: '700' },
+  connRow: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'flex-start',
+    paddingVertical: 11,
+    paddingHorizontal: 4,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  connRowPressed: { backgroundColor: colors.surfaceMuted },
+  connTrailing: { alignItems: 'flex-end' },
+  connLabel: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
+  connNote: { fontSize: 11, color: colors.textSecondary, marginTop: 2, fontStyle: 'italic' },
+  connReason: { fontSize: 12, color: colors.textPrimary, marginTop: 6, lineHeight: 17 },
   proBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginTop: 14,
+    marginTop: 18,
     padding: 12,
     borderRadius: 14,
     backgroundColor: colors.primarySoft,
@@ -256,12 +379,7 @@ const styles = StyleSheet.create({
   },
   proTitle: { fontSize: 14, fontWeight: '800', color: colors.textPrimary },
   proBody: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  proCta: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 999,
-    backgroundColor: colors.primary,
-  },
+  proCta: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: colors.primary },
   proCtaText: { color: colors.textOnPrimary, fontWeight: '800', fontSize: 12 },
   segment: {
     flexDirection: 'row',
@@ -271,32 +389,15 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     padding: 4,
   },
-  segmentBtn: {
-    flex: 1,
-    paddingVertical: 9,
-    borderRadius: 999,
-    alignItems: 'center',
-  },
+  segmentBtn: { flex: 1, paddingVertical: 9, borderRadius: 999, alignItems: 'center' },
   segmentBtnActive: { backgroundColor: colors.primary },
   segmentText: { fontWeight: '700', color: colors.textSecondary, fontSize: 13 },
   segmentTextActive: { color: colors.textOnPrimary },
-  directionsBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    marginTop: 12,
-    paddingVertical: 9,
-    borderRadius: 10,
-    backgroundColor: colors.primary,
-  },
-  directionsText: { color: colors.textOnPrimary, fontSize: 13, fontWeight: '700' },
-  body: { marginTop: 12 },
-  loading: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 16 },
+  loading: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 14 },
   loadingText: { color: colors.textSecondary },
-  error: { color: colors.accent, padding: 16, lineHeight: 20 },
-  empty: { color: colors.textSecondary, padding: 16 },
-  row: {
+  error: { color: colors.accent, paddingVertical: 14, lineHeight: 20 },
+  empty: { color: colors.textSecondary, paddingVertical: 12 },
+  flightRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -311,16 +412,6 @@ const styles = StyleSheet.create({
   route: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
   flightMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
   statusCol: { alignItems: 'flex-end' },
-  statusPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    maxWidth: 110,
-  },
-  statusText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: colors.textOnPrimary,
-    textAlign: 'center',
-  },
+  statusPill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, maxWidth: 120 },
+  statusText: { fontSize: 11, fontWeight: '800', color: colors.textOnPrimary, textAlign: 'center' },
 });

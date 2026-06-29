@@ -14,16 +14,32 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors } from '@/theme/colors';
+import type { AppEvent } from '@/types/event';
+import { formatEventDate, isInRange, type DateRange } from '@/utils/dateFilters';
 
 interface Props {
   visible: boolean;
   onClose: () => void;
+  /** Cached events so the assistant can answer "what's on tomorrow" etc. */
+  events?: AppEvent[];
+  /** Save + reminder for an event (no-op if not provided). */
+  onSaveEvent?: (event: AppEvent) => void;
+  /** Add an event to the device calendar (no-op if not provided). */
+  onAddToCalendar?: (event: AppEvent) => void;
+}
+
+interface ChatAction {
+  label: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  onPress: () => void;
 }
 
 interface ChatMessage {
   id: string;
   role: 'user' | 'bot';
   text: string;
+  /** Optional tappable actions rendered under a bot bubble. */
+  actions?: ChatAction[];
 }
 
 /**
@@ -36,10 +52,10 @@ interface ChatMessage {
  */
 
 const SUGGESTIONS = [
+  'What events are on tomorrow?',
+  'Anything on this weekend?',
   'What do the coloured pins mean?',
-  'How do I save an event?',
   'How do notifications work?',
-  'How do I report a hazard?',
 ];
 
 interface Knowledge {
@@ -101,26 +117,179 @@ function localAnswer(input: string): string {
   return "I’m still learning! I can help with pins, saving events, notifications, reporting, directions, filters and live transit. Try one of the suggestions, or send feedback from the menu and the team will follow up.";
 }
 
-export function AISupportSheet({ visible, onClose }: Props) {
+// ── Event question handling ────────────────────────────────────────────────
+// The assistant can answer natural date questions ("what's on tomorrow",
+// "anything this weekend", "events on Saturday") from the cached events list.
+
+const startOfDay = (d: Date): Date => {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+};
+const endOfDay = (d: Date): Date => {
+  const x = new Date(d);
+  x.setHours(23, 59, 59, 999);
+  return x;
+};
+const addDays = (d: Date, n: number): Date => {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  return x;
+};
+
+const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+/** Map a free-text question to a date window + label, or null if none found. */
+function resolveWindow(q: string, now: Date = new Date()): { label: string; range: DateRange } | null {
+  const today = startOfDay(now);
+  if (q.includes('tomorrow')) {
+    const t = addDays(today, 1);
+    return { label: 'tomorrow', range: { start: t, end: endOfDay(t) } };
+  }
+  if (q.includes('tonight') || q.includes('today')) {
+    return { label: q.includes('tonight') ? 'tonight' : 'today', range: { start: today, end: endOfDay(today) } };
+  }
+  if (q.includes('weekend')) {
+    // Upcoming Saturday + Sunday (or the current one if it's already the weekend).
+    const dow = today.getDay();
+    const satOffset = dow === 0 ? -1 : 6 - dow; // Sunday counts as part of this weekend
+    const sat = addDays(today, Math.max(satOffset, dow === 6 ? 0 : satOffset));
+    const start = dow === 0 ? addDays(today, -1) : sat;
+    return { label: 'this weekend', range: { start: startOfDay(start), end: endOfDay(addDays(start, 1)) } };
+  }
+  if (q.includes('this week') || q.includes('week')) {
+    const dow = today.getDay();
+    const daysToSun = (7 - dow) % 7;
+    return { label: 'this week', range: { start: today, end: endOfDay(addDays(today, daysToSun)) } };
+  }
+  if (q.includes('next 3') || q.includes('next three')) {
+    return { label: 'the next 3 days', range: { start: today, end: endOfDay(addDays(today, 2)) } };
+  }
+  for (let i = 0; i < WEEKDAYS.length; i++) {
+    if (q.includes(WEEKDAYS[i])) {
+      let delta = (i - today.getDay() + 7) % 7;
+      if (delta === 0) delta = 7; // "on Monday" means the next one, not today
+      const d = addDays(today, delta);
+      return { label: `on ${WEEKDAYS[i][0].toUpperCase()}${WEEKDAYS[i].slice(1)}`, range: { start: d, end: endOfDay(d) } };
+    }
+  }
+  return null;
+}
+
+const EVENT_WORDS = ['event', 'events', 'happening', 'going on', 'on tonight', 'on today',
+  'on tomorrow', 'whats on', "what's on", 'what is on', 'show', 'shows', 'gig', 'gigs',
+  'concert', 'concerts', 'match', 'matches', 'fixture', 'fixtures', 'anything on', 'look out for'];
+
+const typeOf = (e: AppEvent): string =>
+  e.subCategory ?? (e.category === 'sports' ? 'Sports' : 'Event');
+
+const shortTitle = (t: string): string => (t.length > 24 ? `${t.slice(0, 22)}…` : t);
+
+/** Build the assistant's answer to an event question. `offer` lists events the UI can attach actions to. */
+function answerEventQuery(
+  input: string,
+  events: AppEvent[],
+): { text: string; offer: AppEvent[] } | null {
+  const q = input.toLowerCase();
+  const win = resolveWindow(q);
+  const looksLikeEventQ = EVENT_WORDS.some((w) => q.includes(w));
+  if (!win && !looksLikeEventQ) return null;
+  if (!win && looksLikeEventQ) {
+    // Event-ish question with no date → default to the next 3 days.
+    const today = startOfDay(new Date());
+    return formatAnswer('over the next few days', { start: today, end: endOfDay(addDays(today, 2)) }, events);
+  }
+  if (win) return formatAnswer(win.label, win.range, events);
+  return null;
+}
+
+function formatAnswer(
+  label: string,
+  range: DateRange,
+  events: AppEvent[],
+): { text: string; offer: AppEvent[] } {
+  const matches = events
+    .filter((e) => isInRange(e.startsAt, range))
+    .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
+
+  if (matches.length === 0) {
+    return {
+      text: `I can’t see anything ${label} in the current list yet. Try the All filter, or check again as the live feeds refresh through the day.`,
+      offer: [],
+    };
+  }
+
+  const shown = matches.slice(0, 6);
+  const lines = shown.map(
+    (e) => `• ${e.title} · ${typeOf(e)} · ${formatEventDate(e.startsAt)} · ${e.venue}`,
+  );
+  const more = matches.length > shown.length ? `\n…and ${matches.length - shown.length} more.` : '';
+  const head = `Here ${matches.length === 1 ? 'is' : 'are'} ${matches.length} event${
+    matches.length === 1 ? '' : 's'
+  } ${label}:`;
+  const tail = '\n\nWant a reminder or a calendar entry for any of these? Tap a button below.';
+  return { text: `${head}\n${lines.join('\n')}${more}${tail}`, offer: shown.slice(0, 3) };
+}
+
+export function AISupportSheet({ visible, onClose, events, onSaveEvent, onAddToCalendar }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome',
       role: 'bot',
-      text: 'Hi! I’m DriveIQ AI Support. Ask me how anything in the app works — or tap a suggestion below.',
+      text: 'Hi! I’m DriveIQ AI Support. Ask me what events are on (try “what’s on tomorrow?”) and I can set reminders or add them to your calendar. I can also help with how anything in the app works.',
     },
   ]);
   const [input, setInput] = useState('');
   const scrollRef = useRef<ScrollView>(null);
 
+  const pushBot = (text: string) =>
+    setMessages((prev) => [...prev, { id: `b-${Date.now()}-${Math.random()}`, role: 'bot', text }]);
+
+  /** Build reminder / calendar chips for the events the answer offered. */
+  const buildActions = (offer: AppEvent[]): ChatAction[] => {
+    const actions: ChatAction[] = [];
+    offer.forEach((e, i) => {
+      if (onSaveEvent) {
+        actions.push({
+          label: i === 0 ? 'Remind me' : `Remind: ${shortTitle(e.title)}`,
+          icon: 'notifications-outline',
+          onPress: () => {
+            onSaveEvent(e);
+            pushBot(`Reminder set for “${e.title}”. I’ll nudge you an hour before it starts.`);
+          },
+        });
+      }
+    });
+    if (offer[0] && onAddToCalendar) {
+      actions.push({
+        label: 'Add to calendar',
+        icon: 'calendar-outline',
+        onPress: () => {
+          onAddToCalendar(offer[0]);
+          pushBot(`Added “${offer[0].title}” to your calendar.`);
+        },
+      });
+    }
+    return actions;
+  };
+
   const send = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
     const userMsg: ChatMessage = { id: `u-${Date.now()}`, role: 'user', text: trimmed };
-    const botMsg: ChatMessage = {
-      id: `b-${Date.now()}`,
-      role: 'bot',
-      text: localAnswer(trimmed),
-    };
+
+    const eventResult =
+      events && events.length > 0 ? answerEventQuery(trimmed, events) : null;
+
+    const botMsg: ChatMessage = eventResult
+      ? {
+          id: `b-${Date.now()}`,
+          role: 'bot',
+          text: eventResult.text,
+          actions: eventResult.offer.length ? buildActions(eventResult.offer) : undefined,
+        }
+      : { id: `b-${Date.now()}`, role: 'bot', text: localAnswer(trimmed) };
+
     setMessages((prev) => [...prev, userMsg, botMsg]);
     setInput('');
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
@@ -155,21 +324,38 @@ export function AISupportSheet({ visible, onClose }: Props) {
             contentContainerStyle={styles.threadContent}
           >
             {messages.map((m) => (
-              <View
-                key={m.id}
-                style={[
-                  styles.bubble,
-                  m.role === 'user' ? styles.userBubble : styles.botBubble,
-                ]}
-              >
-                <Text
+              <View key={m.id} style={styles.msgGroup}>
+                <View
                   style={[
-                    styles.bubbleText,
-                    m.role === 'user' && styles.userBubbleText,
+                    styles.bubble,
+                    m.role === 'user' ? styles.userBubble : styles.botBubble,
                   ]}
                 >
-                  {m.text}
-                </Text>
+                  <Text
+                    style={[
+                      styles.bubbleText,
+                      m.role === 'user' && styles.userBubbleText,
+                    ]}
+                  >
+                    {m.text}
+                  </Text>
+                </View>
+                {m.actions && m.actions.length > 0 ? (
+                  <View style={styles.actionsRow}>
+                    {m.actions.map((a, i) => (
+                      <Pressable
+                        key={`${m.id}-a-${i}`}
+                        style={styles.actionChip}
+                        onPress={a.onPress}
+                        accessibilityRole="button"
+                        accessibilityLabel={a.label}
+                      >
+                        <Ionicons name={a.icon} size={14} color={colors.primary} />
+                        <Text style={styles.actionChipText}>{a.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
               </View>
             ))}
 
@@ -250,11 +436,37 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 10,
   },
+  msgGroup: {
+    width: '100%',
+  },
   bubble: {
     maxWidth: '85%',
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 16,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+    alignSelf: 'flex-start',
+  },
+  actionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  actionChipText: {
+    fontSize: 13,
+    color: colors.primary,
+    fontWeight: '700',
   },
   botBubble: {
     alignSelf: 'flex-start',

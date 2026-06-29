@@ -39,6 +39,7 @@ import { MapActionStack } from '@/components/MapActionStack';
 import { NavigationAppPicker, type NavDestination } from '@/components/NavigationAppPicker';
 import { NavigationOverlay } from '@/components/NavigationOverlay';
 import { RouteInfoPanel } from '@/components/RouteInfoPanel';
+import { SplashLoading } from '@/components/SplashLoading';
 import { TrafficIncidentSheet } from '@/components/TrafficIncidentSheet';
 import { TrafficMarker } from '@/components/TrafficMarker';
 import { fetchAllEvents } from '@/services/events';
@@ -173,6 +174,9 @@ export default function MapScreen() {
   const [flightsAirport, setFlightsAirport] = useState<Airport | null>(null);
   const [notifSettingsOpen, setNotifSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Branded launch / loading screen, shown over everything on first mount.
+  const [showSplash, setShowSplash] = useState(true);
 
   // First-launch product tour gates the notifications ask so they don't
   // stack on top of each other.
@@ -1222,7 +1226,15 @@ export default function MapScreen() {
       />
       <FeedbackSheet visible={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
       <AboutSheet visible={aboutOpen} onClose={() => setAboutOpen(false)} />
-      <AISupportSheet visible={aiSupportOpen} onClose={() => setAiSupportOpen(false)} />
+      <AISupportSheet
+        visible={aiSupportOpen}
+        onClose={() => setAiSupportOpen(false)}
+        events={events}
+        onSaveEvent={(event) => {
+          if (!(event.id in savedEvents)) handleToggleSave(event);
+        }}
+        onAddToCalendar={handleAddToCalendar}
+      />
 
       <AuthSheet
         visible={authSheet.open}
@@ -1320,6 +1332,8 @@ export default function MapScreen() {
           });
         }}
       />
+
+      {showSplash ? <SplashLoading onDone={() => setShowSplash(false)} /> : null}
     </View>
   );
 }

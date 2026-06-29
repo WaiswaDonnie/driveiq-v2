@@ -164,6 +164,8 @@ function formatLocal(d: Date): string {
 export interface AirportFlightsResult {
   flights: AirportFlight[];
   error?: 'no-key' | 'rate-limited' | 'network' | 'http';
+  /** HTTP status when error === 'http', for precise diagnostics. */
+  status?: number;
 }
 
 /**
@@ -185,9 +187,10 @@ export async function fetchAirportFlights(
     return { flights: [], error: 'http' };
   }
 
-  // Window: 1h back → 11h ahead (12h is AeroDataBox's hard cap).
+  // Window: 1h back → 10h ahead. Kept strictly under AeroDataBox's 12h cap
+  // (exactly 12h is sometimes rejected as "out of range").
   const from = new Date(now.getTime() - 1 * 60 * 60 * 1000);
-  const to = new Date(now.getTime() + 11 * 60 * 60 * 1000);
+  const to = new Date(now.getTime() + 10 * 60 * 60 * 1000);
 
   const params = new URLSearchParams({
     direction: 'Both',
@@ -220,8 +223,16 @@ export async function fetchAirportFlights(
     return { flights: [], error: 'rate-limited' };
   }
   if (!res.ok) {
-    console.warn('[aerodatabox] non-OK', res.status);
-    return { flights: [], error: 'http' };
+    // Surface the body so the exact AeroDataBox/RapidAPI message is visible in
+    // the logs (e.g. "You are not subscribed to this API").
+    let body = '';
+    try {
+      body = (await res.text()).slice(0, 300);
+    } catch {
+      body = '(no body)';
+    }
+    console.warn(`[aerodatabox] non-OK ${res.status} for ${icao}: ${body}`);
+    return { flights: [], error: 'http', status: res.status };
   }
 
   const json = (await res.json()) as AdbFidsResponse;
