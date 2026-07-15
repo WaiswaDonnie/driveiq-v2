@@ -24,11 +24,41 @@ export interface LineStatus {
   reason?: string;
 }
 
+interface RawValidityPeriod {
+  fromDate?: string;
+  toDate?: string;
+  isNow?: boolean;
+}
+
 interface RawLineStatus {
   statusSeverity: number;
   statusSeverityDescription: string;
   reason?: string;
+  validityPeriods?: RawValidityPeriod[];
 }
+
+/**
+ * Is this status entry in force RIGHT NOW?
+ *
+ * TfL keeps expired and future-planned disruption entries in the feed —
+ * National Rail operators especially leave engineering notices (with links to
+ * weeks-old incident webpages) hanging around long after they've ended. We
+ * were showing every entry regardless, which is why the Connections panel
+ * cited stale disruptions (reported 6 July 2026). Only entries whose validity
+ * window covers the current time count; entries with no validity info are
+ * assumed live (that's how TfL ships real-time tube statuses).
+ */
+const isActiveNow = (s: RawLineStatus, now: number = Date.now()): boolean => {
+  const periods = s.validityPeriods ?? [];
+  if (periods.length === 0) return true;
+  return periods.some((p) => {
+    if (p.isNow) return true;
+    const from = p.fromDate ? Date.parse(p.fromDate) : NaN;
+    const to = p.toDate ? Date.parse(p.toDate) : NaN;
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return false;
+    return now >= from && now <= to;
+  });
+};
 
 interface RawLine {
   id: string;
@@ -66,10 +96,12 @@ export const SEVERITY_LABEL: Record<LineSeverityBucket, string> = {
 };
 
 export async function fetchLineStatuses(): Promise<LineStatus[]> {
-  const url = APP_KEY ? `${ENDPOINT}?app_key=${encodeURIComponent(APP_KEY)}` : ENDPOINT;
+  // Cache-buster + no-store: intermediate CDN/HTTP caches must never serve a
+  // stale copy of a "live status" response.
+  const url = `${ENDPOINT}?_=${Date.now()}${APP_KEY ? `&app_key=${encodeURIComponent(APP_KEY)}` : ''}`;
   let res: Response;
   try {
-    res = await fetch(url);
+    res = await fetch(url, { cache: 'no-store' });
   } catch (e) {
     console.warn('[tfl-lines] network error', e);
     return [];
@@ -81,8 +113,9 @@ export async function fetchLineStatuses(): Promise<LineStatus[]> {
 
   const raw = (await res.json()) as RawLine[];
   const out: LineStatus[] = raw.map((l) => {
-    // TfL returns one entry per concurrent status. Use the worst.
-    const worst = (l.lineStatuses ?? []).reduce<RawLineStatus | null>(
+    // TfL returns one entry per concurrent status. Consider only entries in
+    // force right now (expired/planned ones are noise), then use the worst.
+    const worst = (l.lineStatuses ?? []).filter((s) => isActiveNow(s)).reduce<RawLineStatus | null>(
       (acc, s) => (acc == null || s.statusSeverity < acc.statusSeverity ? s : acc),
       null,
     );
@@ -176,11 +209,11 @@ export const extractLink = (text: string | undefined): string | undefined => {
 export async function fetchLineDetail(lineId: string): Promise<LineDetail | null> {
   const url = `https://api.tfl.gov.uk/Line/${encodeURIComponent(
     lineId,
-  )}/Status?detail=true${APP_KEY ? `&app_key=${encodeURIComponent(APP_KEY)}` : ''}`;
+  )}/Status?detail=true&_=${Date.now()}${APP_KEY ? `&app_key=${encodeURIComponent(APP_KEY)}` : ''}`;
 
   let res: Response;
   try {
-    res = await fetch(url);
+    res = await fetch(url, { cache: 'no-store' });
   } catch (e) {
     console.warn('[tfl-lines] detail network error', e);
     return null;
@@ -194,15 +227,18 @@ export async function fetchLineDetail(lineId: string): Promise<LineDetail | null
   const raw = arr[0];
   if (!raw) return null;
 
-  const worst = (raw.lineStatuses ?? []).reduce<RawLineStatus | null>(
+  // Only statuses in force right now — expired/planned engineering notices
+  // (and their weeks-old incident links) must not surface as current.
+  const activeStatuses = (raw.lineStatuses ?? []).filter((s) => isActiveNow(s));
+  const worst = activeStatuses.reduce<RawLineStatus | null>(
     (acc, s) => (acc == null || s.statusSeverity < acc.statusSeverity ? s : acc),
     null,
   );
   const sev = worst?.statusSeverity ?? 10;
 
-  // Dedupe affected stops across all status entries.
+  // Dedupe affected stops across the ACTIVE status entries.
   const stopMap = new Map<string, AffectedStop>();
-  for (const ls of raw.lineStatuses ?? []) {
+  for (const ls of activeStatuses) {
     const stops = (ls as unknown as { affectedStops?: RawAffectedStop[] })
       .affectedStops ?? [];
     for (const s of stops) {
@@ -233,6 +269,11 @@ export async function fetchLineDetail(lineId: string): Promise<LineDetail | null
       link: extractLink(worst.reason),
     });
   }
+
+  // A line that's on Good service right now must not display leftover
+  // disruption rows (TfL keeps old/planned notices in `disruptions` with no
+  // validity info — the source of the weeks-old webpage links).
+  if (bucket(sev) === 'good') disruptions.length = 0;
 
   return {
     id: raw.id,

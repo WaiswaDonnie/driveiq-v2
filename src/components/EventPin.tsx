@@ -9,6 +9,13 @@ interface EventPinProps {
   event: AppEvent;
   selected: boolean;
   onPress: (event: AppEvent) => void;
+  /**
+   * Bumped by the map screen after each completed pan/zoom gesture. Any pin
+   * whose frozen bitmap came out blank or clipped (the intermittent "pin not
+   * showing" bug — e.g. the invisible Wimbledon pin, the broken Luton pins)
+   * re-rasterises on the next gesture and heals itself.
+   */
+  rasterEpoch?: number;
 }
 
 /**
@@ -28,15 +35,40 @@ interface EventPinProps {
  * Wrapped in React.memo so an unrelated parent re-render (e.g. a traffic
  * poll) doesn't touch any pin whose own props are unchanged.
  */
-function EventPinBase({ event, selected, onPress }: EventPinProps) {
+function EventPinBase({ event, selected, onPress, rasterEpoch = 0 }: EventPinProps) {
   const descriptor = useMemo(() => pinDescriptorFor(event), [event]);
 
-  // Track view changes briefly on mount so the marker rasterises, then freeze.
+  // Track view changes until the pin's content has painted, THEN freeze to a
+  // bitmap so it never flickers. Freezing on a blind timer (the old 400ms) was
+  // the bug: a logo image or icon that hadn't decoded yet froze blank and only
+  // reappeared when a zoom forced a re-snapshot. Now EventMarker calls onReady
+  // once its glyph/image is actually on screen; we freeze shortly after. A
+  // safety timeout still freezes in case onReady never fires.
   const [tracks, setTracks] = useState(true);
+  const frozenRef = useRef(false);
+  const freezeSoon = () => {
+    if (frozenRef.current) return;
+    frozenRef.current = true;
+    setTimeout(() => setTracks(false), 200);
+  };
   useEffect(() => {
-    const id = setTimeout(() => setTracks(false), 400);
-    return () => clearTimeout(id);
+    const safety = setTimeout(() => setTracks(false), 2000);
+    return () => clearTimeout(safety);
   }, []);
+
+  // Self-heal pass: after each completed map gesture, briefly re-enable
+  // tracking so a bitmap that froze blank/clipped gets re-captured. Skips the
+  // initial mount (the onReady path above covers that).
+  const firstEpoch = useRef(true);
+  useEffect(() => {
+    if (firstEpoch.current) {
+      firstEpoch.current = false;
+      return;
+    }
+    setTracks(true);
+    const id = setTimeout(() => setTracks(false), 350);
+    return () => clearTimeout(id);
+  }, [rasterEpoch]);
 
   // Re-enable tracking ONLY for a real select/deselect after mount — skipping
   // the initial run avoids a second, overlapping track window on every pin as
@@ -60,8 +92,12 @@ function EventPinBase({ event, selected, onPress }: EventPinProps) {
       onPress={() => onPress(event)}
       anchor={{ x: 0.5, y: 1 }}
       tracksViewChanges={tracks}
+      // Featured pins (Wimbledon, Ascot, …) sit above cluster bubbles
+      // (zIndex 15) so a count bubble can never cover them; airports (20)
+      // stay on top of everything.
+      zIndex={event.source === 'featured' ? 18 : 10}
     >
-      <EventMarker descriptor={descriptor} selected={selected} />
+      <EventMarker descriptor={descriptor} selected={selected} onReady={freezeSoon} />
     </Marker>
   );
 }
@@ -73,5 +109,6 @@ export const EventPin = React.memo(
     prev.event.id === next.event.id &&
     prev.event.latitude === next.event.latitude &&
     prev.event.longitude === next.event.longitude &&
-    prev.onPress === next.onPress,
+    prev.onPress === next.onPress &&
+    prev.rasterEpoch === next.rasterEpoch,
 );

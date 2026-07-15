@@ -42,10 +42,37 @@ function hhmm(local?: string): string {
   return time.slice(0, 5) || '--:--';
 }
 
-function flightStatusColor(f: AirportFlight): string {
+// Left status bar colour: red cancelled, amber delayed, green otherwise.
+function flightBarColor(f: AirportFlight): string {
   if (f.cancelled) return '#DC2626';
   if (f.delayed) return '#F97316';
   return '#26C281';
+}
+function flightStatusText(f: AirportFlight): string {
+  if (f.cancelled) return '#DC2626';
+  if (f.delayed) return '#F97316';
+  return '#1E9E6A';
+}
+function flightStatusBg(f: AirportFlight): string {
+  if (f.cancelled) return '#FCEBEB';
+  if (f.delayed) return '#FAEEDA';
+  return '#E1F5EE';
+}
+const STATUS_LABELS: Record<string, string> = {
+  EnRoute: 'En route',
+  CheckIn: 'Check-in',
+  Departed: 'Departed',
+  Arrived: 'Arrived',
+  Boarding: 'Boarding',
+  Expected: 'Expected',
+  Scheduled: 'Scheduled',
+  Diverted: 'Diverted',
+  Approaching: 'Approaching',
+};
+function flightStatusLabel(f: AirportFlight): string {
+  if (f.cancelled) return 'Cancelled';
+  if (f.delayed) return f.delayMinutes != null ? `Delayed ${f.delayMinutes}m` : 'Delayed';
+  return STATUS_LABELS[f.status] ?? f.status;
 }
 
 export function AirportFlightsSheet({ airport, onClose, onNavigate }: Props) {
@@ -121,10 +148,15 @@ export function AirportFlightsSheet({ airport, onClose, onNavigate }: Props) {
     };
   }, [airport]);
 
-  const shownFlights = useMemo(
-    () => flights.filter((f) => f.direction === direction),
-    [flights, direction],
-  );
+  // Only relevant flights: drop anything more than 30 min in the past so we
+  // never show flights that left/landed hours ago. Sorted soonest-first, capped.
+  const shownFlights = useMemo(() => {
+    const cutoff = Date.now() - 30 * 60 * 1000;
+    return flights
+      .filter((f) => f.direction === direction)
+      .filter((f) => f.scheduledMs === 0 || f.scheduledMs >= cutoff)
+      .slice(0, 40);
+  }, [flights, direction]);
 
   if (!airport) return null;
 
@@ -253,9 +285,23 @@ export function AirportFlightsSheet({ airport, onClose, onNavigate }: Props) {
           {!flightsLoading &&
             shownFlights.map((f) => (
               <View key={f.id} style={styles.flightRow}>
+                <View style={[styles.flightBar, { backgroundColor: flightBarColor(f) }]} />
                 <View style={styles.timeCol}>
-                  <Text style={[styles.time, f.cancelled && styles.timeStruck]}>{hhmm(f.scheduledLocal)}</Text>
-                  {f.delayed && f.revisedLocal ? <Text style={styles.revised}>{hhmm(f.revisedLocal)}</Text> : null}
+                  <Text
+                    style={[
+                      styles.time,
+                      (f.cancelled || f.delayed) && styles.timeStruck,
+                    ]}
+                  >
+                    {hhmm(f.scheduledLocal)}
+                  </Text>
+                  {f.cancelled ? (
+                    <Text style={styles.subCancelled}>Cancelled</Text>
+                  ) : f.delayed && f.revisedLocal ? (
+                    <Text style={styles.subDelayed}>Est. {hhmm(f.revisedLocal)}</Text>
+                  ) : (
+                    <Text style={styles.subSched}>Sched.</Text>
+                  )}
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.route} numberOfLines={1}>
@@ -269,18 +315,12 @@ export function AirportFlightsSheet({ airport, onClose, onNavigate }: Props) {
                     {f.terminal ? ` · T${f.terminal}` : ''}
                   </Text>
                 </View>
-                <View style={styles.statusCol}>
-                  <View style={[styles.statusPill, { backgroundColor: flightStatusColor(f) }]}>
-                    <Text style={styles.statusText}>
-                      {f.cancelled
-                        ? 'Cancelled'
-                        : f.delayed
-                          ? f.delayMinutes != null
-                            ? `+${f.delayMinutes}m`
-                            : 'Delayed'
-                          : f.status}
-                    </Text>
-                  </View>
+                <View
+                  style={[styles.flightStatusPill, { backgroundColor: flightStatusBg(f) }]}
+                >
+                  <Text style={[styles.flightStatusText, { color: flightStatusText(f) }]}>
+                    {flightStatusLabel(f)}
+                  </Text>
                 </View>
               </View>
             ))}
@@ -400,18 +440,27 @@ const styles = StyleSheet.create({
   flightRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
+    gap: 10,
+    paddingVertical: 11,
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
-  timeCol: { width: 52 },
-  time: { fontSize: 15, fontWeight: '800', color: colors.textPrimary },
+  flightBar: { width: 4, height: 40, borderRadius: 2 },
+  timeCol: { width: 58 },
+  time: { fontSize: 16, fontWeight: '800', color: colors.textPrimary },
   timeStruck: { textDecorationLine: 'line-through', color: colors.textSecondary },
-  revised: { fontSize: 12, fontWeight: '700', color: '#F97316', marginTop: 2 },
+  subDelayed: { fontSize: 11, fontWeight: '700', color: '#F97316', marginTop: 2 },
+  subCancelled: { fontSize: 11, fontWeight: '700', color: '#DC2626', marginTop: 2 },
+  subSched: { fontSize: 11, color: colors.textSecondary, marginTop: 2 },
   route: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
   flightMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  statusCol: { alignItems: 'flex-end' },
+  flightStatusPill: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    maxWidth: 110,
+  },
+  flightStatusText: { fontSize: 11, fontWeight: '800', textAlign: 'center' },
   statusPill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, maxWidth: 120 },
   statusText: { fontSize: 11, fontWeight: '800', color: colors.textOnPrimary, textAlign: 'center' },
 });

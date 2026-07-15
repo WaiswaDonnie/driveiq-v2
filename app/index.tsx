@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Image,
   Platform,
   Pressable,
@@ -26,6 +27,7 @@ import { AirportPin } from '@/components/AirportPin';
 import { AirportFlightsSheet } from '@/components/AirportFlightsSheet';
 import { AIRPORTS, type Airport } from '@/services/airports';
 import { CategoryFilterBar } from '@/components/CategoryFilterBar';
+import { ClusterPin } from '@/components/ClusterPin';
 import { ConnectionsPanel } from '@/components/ConnectionsPanel';
 import { EventDetailsSheet } from '@/components/EventDetailsSheet';
 import { EventPin } from '@/components/EventPin';
@@ -101,6 +103,12 @@ import {
   rangeFor,
   type FilterKey,
 } from '@/utils/dateFilters';
+import { VenueEventsSheet } from '@/components/VenueEventsSheet';
+import {
+  CLUSTER_OFF_DELTA,
+  clusterEvents,
+  type EventCluster,
+} from '@/utils/clustering';
 import { distanceMeters, type LatLng } from '@/utils/distance';
 import {
   categoryFilterFor,
@@ -141,7 +149,9 @@ const BRAND_LOGO = require('../assets/driveiq-logo.png');
 
 export default function MapScreen() {
   const mapRef = useRef<MapView>(null);
-  const [filter, setFilter] = useState<FilterKey>('all');
+  // Default to Today so the map opens on ~100 events, not all ~1,100 — far
+  // less congested in central London. "All" is still available as a chip.
+  const [filter, setFilter] = useState<FilterKey>('today');
   const [categories, setCategories] = useState<Set<CategoryFilterKey>>(
     () => new Set(),
   );
@@ -161,6 +171,18 @@ export default function MapScreen() {
   const [reports, setReports] = useState<UserReport[]>([]);
   const [reportSheetOpen, setReportSheetOpen] = useState(false);
   const lastRegionRef = useRef<Region>(LONDON_REGION);
+
+  // Bumped once per completed gesture; passed to pins so any marker whose
+  // frozen bitmap rendered blank/clipped re-rasterises and heals itself.
+  const [rasterEpoch, setRasterEpoch] = useState(0);
+
+  // Committed viewport (updates when a pan/zoom gesture ENDS, not per frame).
+  // Drives re-clustering of the venue pins.
+  const [mapRegion, setMapRegion] = useState<Region>(LONDON_REGION);
+
+  // Events at the venue pin the user just tapped (when 2+ events share that
+  // location). Drives the venue list sheet.
+  const [venueEvents, setVenueEvents] = useState<AppEvent[] | null>(null);
 
   // Traffic incidents (TfL).
   const [incidents, setIncidents] = useState<TrafficIncident[]>([]);
@@ -263,6 +285,34 @@ export default function MapScreen() {
     };
   }, []);
 
+  // Re-read the GPS fix whenever the app returns to the foreground. Location
+  // was only read once on mount, so if the user moved while the app was
+  // backgrounded/closed, the blue dot stayed at the OLD position until a
+  // manual re-centre (client bug report, 7 July 2026). Foreground ("while
+  // using") permission fully covers this — no need for the "Allow all the
+  // time" background permission, which is only for tracking while closed.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      (async () => {
+        try {
+          const { status } = await Location.getForegroundPermissionsAsync();
+          if (status !== 'granted') return;
+          const pos = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          setUserLocation({
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+          });
+        } catch (e) {
+          console.warn('[location] foreground re-read failed', e);
+        }
+      })();
+    });
+    return () => sub.remove();
+  }, []);
+
   // Fetch the full week's events once on mount; date-filter chips then narrow
   // the in-memory list rather than re-querying the providers.
   useEffect(() => {
@@ -314,6 +364,17 @@ export default function MapScreen() {
   // and major A-roads) so users see the full picture from their location into
   // and out of the city. Each poll also diffs against the previous snapshot
   // and fires local notifications if the user has opted in.
+  // Last successful payload per source. Both fetchers swallow errors and
+  // return [] — without this, one failed/rate-limited poll wiped every
+  // incident pin off the map for 5 minutes and they'd "come and go"
+  // (the live-traffic flicker Donnie reported on 1 July). An empty result is
+  // treated as a failed poll and the previous good data is kept; London's
+  // feeds are never genuinely empty.
+  const lastGoodIncidentsRef = useRef<{
+    tfl: TrafficIncident[];
+    nh: TrafficIncident[];
+  }>({ tfl: [], nh: [] });
+
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -323,8 +384,12 @@ export default function MapScreen() {
         fetchLineStatuses(),
       ]);
       if (cancelled) return;
+      const last = lastGoodIncidentsRef.current;
+      const tflList = tfl.length > 0 ? tfl : last.tfl;
+      const nhList = nh.length > 0 ? nh : last.nh;
+      lastGoodIncidentsRef.current = { tfl: tflList, nh: nhList };
       const merged = new Map<string, TrafficIncident>();
-      for (const i of [...tfl, ...nh]) merged.set(i.id, i);
+      for (const i of [...tflList, ...nhList]) merged.set(i.id, i);
       const incidentList = Array.from(merged.values());
       setIncidents(incidentList);
 
@@ -358,6 +423,79 @@ export default function MapScreen() {
       return categories.has(categoryFilterFor(e));
     });
   }, [events, filter, categories]);
+
+  // Two-level congestion handling (client spec, clarified 6 July 2026):
+  //
+  //  1. SAME LOCATION → one pin per venue. Events sharing coordinates
+  //     (~11 m buckets) collapse into a single pin; tapping it lists all
+  //     events there. The representative is the soonest-starting one
+  //     (list is pre-sorted); featured wins so Wimbledon's gold pin shows.
+  //  2. NEARBY VENUES ("10–20 events in a mile") → at city zoom the venue
+  //     pins cluster into count bubbles; zooming in expands them to exact
+  //     locations. Featured pins never enter a bubble.
+  //
+  // `venueGroupsRef` mirrors the memo so the press handler can stay
+  // referentially stable (keeps the memoized pins from re-rendering).
+  const venueGroupsRef = useRef<Map<string, AppEvent[]>>(new Map());
+  const { venuePins, eventClusters } = useMemo(() => {
+    const groups = new Map<string, AppEvent[]>();
+    for (const e of visibleEvents) {
+      const key = `${e.latitude.toFixed(4)}:${e.longitude.toFixed(4)}`;
+      const bucket = groups.get(key);
+      if (bucket) bucket.push(e);
+      else groups.set(key, [e]);
+    }
+    const byRepId = new Map<string, AppEvent[]>();
+    const featured: AppEvent[] = [];
+    const regular: AppEvent[] = [];
+    for (const members of groups.values()) {
+      const rep = members.find((m) => m.source === 'featured') ?? members[0];
+      byRepId.set(rep.id, members);
+      if (rep.source === 'featured') featured.push(rep);
+      else regular.push(rep);
+    }
+    venueGroupsRef.current = byRepId;
+
+    // Bubble counts reflect EVENTS, not venues (a venue pin standing for 4
+    // shows contributes 4 to its bubble's number).
+    const { clusters, singles } = clusterEvents(
+      regular,
+      mapRegion,
+      (rep) => byRepId.get(rep.id)?.length ?? 1,
+    );
+    return { venuePins: [...featured, ...singles], eventClusters: clusters };
+  }, [visibleEvents, mapRegion]);
+
+  // Tap a bubble → zoom into its footprint. If its venues are packed too
+  // tight for fitToCoordinates to change anything, jump straight below the
+  // clustering threshold so it breaks apart into venue pins.
+  const handleClusterPress = useCallback((cluster: EventCluster) => {
+    const lats = cluster.events.map((e) => e.latitude);
+    const lngs = cluster.events.map((e) => e.longitude);
+    const span = Math.max(
+      Math.max(...lats) - Math.min(...lats),
+      Math.max(...lngs) - Math.min(...lngs),
+    );
+    if (span < 0.004) {
+      mapRef.current?.animateToRegion(
+        {
+          latitude: cluster.latitude,
+          longitude: cluster.longitude,
+          latitudeDelta: CLUSTER_OFF_DELTA * 0.8,
+          longitudeDelta: CLUSTER_OFF_DELTA * 0.8,
+        },
+        400,
+      );
+      return;
+    }
+    mapRef.current?.fitToCoordinates(
+      cluster.events.map((e) => ({ latitude: e.latitude, longitude: e.longitude })),
+      {
+        edgePadding: { top: 220, right: 80, bottom: 200, left: 80 },
+        animated: true,
+      },
+    );
+  }, []);
 
   // Ordered filter chips: the four presets plus a scrollable strip of
   // individual future days. Built once on mount so the day labels stay stable.
@@ -446,9 +584,16 @@ export default function MapScreen() {
   }, []);
 
   // Stable across renders so the memoized EventPin children don't re-render
-  // (and re-rasterise) every time the parent updates.
+  // (and re-rasterise) every time the parent updates. If the tapped pin
+  // represents several events at the same location, open the venue list;
+  // otherwise open the event details directly.
   const handlePinPress = useCallback((event: AppEvent) => {
-    setSelected(event);
+    const group = venueGroupsRef.current.get(event.id);
+    if (group && group.length > 1) {
+      setVenueEvents(group);
+    } else {
+      setSelected(event);
+    }
     mapRef.current?.animateToRegion(
       {
         latitude: event.latitude,
@@ -915,10 +1060,12 @@ export default function MapScreen() {
         onPanDrag={() => {
           if (isNavigating) setCameraDetached(true);
         }}
-        // Cheap ref write (no re-render) so a new report can drop at the
-        // current map centre.
+        // Fires once per completed gesture: keep the ref for report drops and
+        // commit the region to state so the pins re-cluster for the new zoom.
         onRegionChangeComplete={(r) => {
           lastRegionRef.current = r;
+          setMapRegion(r);
+          setRasterEpoch((n) => n + 1);
         }}
       >
         {/*
@@ -927,19 +1074,32 @@ export default function MapScreen() {
          * besides the route polyline.
          */}
         {!destination && layers.events &&
-          visibleEvents.map((event) => (
+          venuePins.map((event) => (
             <EventPin
               key={event.id}
               event={event}
               selected={selected?.id === event.id}
               onPress={handlePinPress}
+              rasterEpoch={rasterEpoch}
             />
+          ))}
+
+        {/* Count bubbles over dense areas at city zoom — split into venue
+            pins as the user zooms in (or taps a bubble). */}
+        {!destination && layers.events &&
+          eventClusters.map((cluster) => (
+            <ClusterPin key={cluster.id} cluster={cluster} onPress={handleClusterPress} />
           ))}
 
         {/* Airport pins (LHR/LGW/LTN/STN/LCY) → tap opens the live flights board. */}
         {!destination &&
           AIRPORTS.map((a) => (
-            <AirportPin key={`airport-${a.id}`} airport={a} onPress={setFlightsAirport} />
+            <AirportPin
+              key={`airport-${a.id}`}
+              airport={a}
+              onPress={setFlightsAirport}
+              rasterEpoch={rasterEpoch}
+            />
           ))}
 
         {!destination &&
@@ -1142,6 +1302,15 @@ export default function MapScreen() {
         ]}
       />
       )}
+
+      <VenueEventsSheet
+        events={venueEvents}
+        onClose={() => setVenueEvents(null)}
+        onPickEvent={(event) => {
+          setVenueEvents(null);
+          setSelected(event);
+        }}
+      />
 
       <EventDetailsSheet
         event={selected}

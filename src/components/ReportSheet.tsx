@@ -1,7 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import {
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -55,7 +57,11 @@ export function ReportSheet({ visible, onClose, onSubmit }: Props) {
       animationType="slide"
       onRequestClose={handleClose}
     >
-      <Pressable style={styles.backdrop} onPress={handleClose}>
+      <KeyboardAvoidingView
+        style={styles.flexEnd}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <Pressable style={styles.backdrop} onPress={handleClose} />
         <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
           <View style={styles.handle} />
 
@@ -118,16 +124,19 @@ export function ReportSheet({ visible, onClose, onSubmit }: Props) {
             <Text style={styles.submitText}>Submit report</Text>
           </Pressable>
         </Pressable>
-      </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
+  flexEnd: {
     flex: 1,
-    backgroundColor: 'rgba(14, 42, 58, 0.45)',
     justifyContent: 'flex-end',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(14, 42, 58, 0.45)',
   },
   sheet: {
     backgroundColor: colors.surface,

@@ -3,12 +3,12 @@
     "name": "DriveIQ",
     "slug": "driveiq-91cbfgcslw1jeepr9yba",
     "scheme": "driveiq",
-    "version": "5.0.5",
+    "version": "5.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": false,
     "splash": {
-      "backgroundColor": "#87CEEB",
+      "backgroundColor": "#060B14",
       "resizeMode": "contain"
     },
     "ios": {

@@ -3,7 +3,6 @@ import React from 'react';
 import {
   Alert,
   Image,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -237,9 +236,11 @@ export function SidebarMenu({
   );
 
   return (
-    <Modal transparent animationType="slide" visible onRequestClose={onClose}>
-      <View style={styles.root}>
-        <SafeAreaView edges={['top', 'left']} style={styles.sheet}>
+    // Side panel (not a modal) so the map stays live behind it — you can pan
+    // and zoom with the menu open, and it only closes via the X. box-none lets
+    // touches outside the sheet reach the map underneath.
+    <View style={styles.overlay} pointerEvents="box-none">
+      <SafeAreaView edges={['top', 'left']} style={styles.sheet}>
           <View style={styles.header}>
             <View style={styles.brandBlock}>
               <View style={styles.brandLogoBacking}>
@@ -306,14 +307,7 @@ export function SidebarMenu({
             <Text style={styles.versionText}>DriveIQ v5.0.2</Text>
           </ScrollView>
         </SafeAreaView>
-
-        <Pressable
-          style={styles.backdrop}
-          onPress={onClose}
-          accessibilityLabel="Close menu"
-        />
-      </View>
-    </Modal>
+    </View>
   );
 }
 
@@ -335,8 +329,8 @@ function Section({
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
     flexDirection: 'row',
   },
   sheet: {
@@ -345,13 +339,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     shadowColor: colors.shadow,
     shadowOffset: { width: 2, height: 0 },
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(14, 42, 58, 0.4)',
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
+    elevation: 10,
   },
   header: {
     alignItems: 'center',

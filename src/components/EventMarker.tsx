@@ -15,6 +15,9 @@ interface EventMarkerProps {
    *  DriveIQ brand mark, plus the accent colour for the bubble. */
   descriptor: PinDescriptor;
   selected?: boolean;
+  /** Fired once the pin's content has actually painted (glyph immediately,
+   *  logo after its image loads) so the parent can safely freeze the raster. */
+  onReady?: () => void;
 }
 
 /** Scale the pin grows to when selected. */
@@ -36,7 +39,7 @@ const SELECTED_SCALE = 1.28;
  * lives on a single Animated.View so the base raster never changes size while
  * frozen (EventPin re-enables tracking only for the animation window).
  */
-export function EventMarker({ descriptor, selected = false }: EventMarkerProps) {
+export function EventMarker({ descriptor, selected = false, onReady }: EventMarkerProps) {
   const scale = useRef(new Animated.Value(selected ? SELECTED_SCALE : 1)).current;
 
   useEffect(() => {
@@ -47,6 +50,13 @@ export function EventMarker({ descriptor, selected = false }: EventMarkerProps) 
       tension: 120,
     }).start();
   }, [selected, scale]);
+
+  // Glyph pins (emoji/text) paint synchronously, so they're ready immediately.
+  // Logo pins wait for the image's onLoad below.
+  useEffect(() => {
+    if (descriptor.kind === 'glyph') onReady?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [descriptor.kind]);
 
   const accent = descriptor.color;
   const featured = descriptor.featured ?? false;
@@ -63,6 +73,7 @@ export function EventMarker({ descriptor, selected = false }: EventMarkerProps) 
               resizeMode="contain"
               style={styles.logo}
               accessibilityIgnoresInvertColors
+              onLoad={() => onReady?.()}
             />
           )}
           {featured ? (

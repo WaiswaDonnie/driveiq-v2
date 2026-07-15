@@ -13,7 +13,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors } from '@/theme/colors';
 
@@ -77,6 +77,9 @@ export function FeedbackSheet({ visible, onClose }: Props) {
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={handleClose}>
+      {/* Own provider: root insets don't reach a native Modal window, which
+          left the header under the status bar (the "cropped page" bug). */}
+      <SafeAreaProvider>
       <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Send feedback</Text>
@@ -136,6 +139,7 @@ export function FeedbackSheet({ visible, onClose }: Props) {
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }

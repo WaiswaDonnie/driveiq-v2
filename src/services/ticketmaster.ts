@@ -95,6 +95,155 @@ const toNum = (v: string | undefined): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+// ── End-time estimation ─────────────────────────────────────────────────
+// Ticketmaster's start time is the DOORS time; for big arena/stadium music the
+// real finish is ~22:45 (O2 / Wembley shows end 22:30–23:00). A flat +3h gives
+// wrong early finishes (~20:00), so for those venues we clamp to a standard
+// late finish. Royal Albert Hall is deliberately excluded — its programme
+// (proms, matinees) genuinely finishes earlier.
+const BIG_MUSIC_VENUES = [
+  'o2', 'wembley', 'tottenham', 'twickenham', 'ovo arena',
+  'alexandra palace', 'excel', 'hyde park',
+];
+const isBigMusicVenue = (venueName?: string): boolean => {
+  const v = (venueName ?? '').toLowerCase();
+  return BIG_MUSIC_VENUES.some((k) => v.includes(k));
+};
+
+const HOUR_MS = 3600 * 1000;
+
+function estimateEndsAt(
+  start: { dateTime?: string; localDate?: string; localTime?: string } | undefined,
+  segmentName: string,
+  venueName: string | undefined,
+  subCategory: string | undefined,
+): string {
+  const dateTime = start?.dateTime;
+  if (!dateTime) return defaultEndsAt(new Date().toISOString(), subCategory);
+
+  const isMusic = (segmentName ?? '').toLowerCase() === 'music';
+  if (isMusic && isBigMusicVenue(venueName) && start?.localDate && start?.localTime) {
+    const utcMs = Date.parse(dateTime);
+    const localMs = Date.parse(`${start.localDate}T${start.localTime}Z`);
+    if (Number.isFinite(utcMs) && Number.isFinite(localMs)) {
+      const offsetMs = localMs - utcMs; // e.g. +1h during BST
+      const startHour = parseInt(start.localTime.slice(0, 2), 10);
+      // Late-starting show → add 2.5h; otherwise a standard 22:45 local finish.
+      if (startHour >= 21) return new Date(utcMs + 2.5 * HOUR_MS).toISOString();
+      const endLocalMs = Date.parse(`${start.localDate}T22:45:00Z`);
+      const endUtcMs = endLocalMs - offsetMs;
+      if (endUtcMs > utcMs) return new Date(endUtcMs).toISOString();
+      return new Date(utcMs + 2.5 * HOUR_MS).toISOString();
+    }
+  }
+  return defaultEndsAt(dateTime, subCategory);
+}
+
+// ── Priority "never-miss" venues ────────────────────────────────────────
+// London (marketId 202) returns ~10k events and TM caps deep paging at 1000,
+// so big future events can fall outside the general pull. Worse, some marquee
+// venues (e.g. Tottenham Hotspur Stadium) are tagged market 201 (All of UK)
+// and NOT 202, so the London-market query misses them entirely. We query each
+// of these venues directly by venueId (no market filter) every load and merge
+// them in, guaranteeing they are never missed. IDs from the TM venue search.
+interface PriorityVenue {
+  name: string;
+  venueId: string;
+}
+const PRIORITY_VENUES: PriorityVenue[] = [
+  { name: 'Tottenham Hotspur Stadium', venueId: 'KovZ9177OxV' },
+  { name: 'Wembley Stadium', venueId: 'KovZ9177ML0' },
+  { name: 'The O2', venueId: 'KovZ9177PFf' },
+  { name: 'Allianz Stadium, Twickenham', venueId: 'KovZ9177-bV' },
+  { name: 'OVO Arena Wembley', venueId: 'KovZ9177yOV' },
+  { name: 'Royal Albert Hall', venueId: 'KovZ9177Arf' },
+  { name: 'Hyde Park', venueId: 'KovZ9177gxV' },
+  { name: 'Alexandra Palace', venueId: 'KovZpZAn61lA' },
+  { name: 'ExCeL', venueId: 'KovZ91771S0' },
+];
+
+/** Map a raw Ticketmaster event to an AppEvent, or null if it should be dropped. */
+function toAppEvent(e: TmEvent): AppEvent | null {
+  const segName = e.classifications?.[0]?.segment?.name ?? 'Unknown';
+  const genreName = e.classifications?.[0]?.genre?.name ?? '';
+
+  // Team sports come only from ESPN/football-data; allow arena entertainment
+  // (WWE/wrestling, darts, e-sports) through TM's Sports segment.
+  const isSports = segName.toLowerCase() === 'sports';
+  if (isSports && !isAllowedEntertainmentSport(genreName)) return null;
+
+  const venue = e._embedded?.venues?.[0];
+  let lat = toNum(venue?.location?.latitude);
+  let lon = toNum(venue?.location?.longitude);
+  if (lat == null || lon == null) {
+    const place = findLondonPlace(venue?.name, venue?.city?.name);
+    if (!place) return null;
+    lat = place.latitude;
+    lon = place.longitude;
+  }
+
+  const startsAt = e.dates?.start?.dateTime;
+  if (!startsAt) return null;
+
+  let category: EventCategory;
+  let subCategory: string | undefined;
+  if (isSports) {
+    category = 'sports';
+    subCategory = genreName || 'Sports';
+  } else {
+    const c = classify(segName);
+    category = c.category;
+    subCategory = genreName || c.sub;
+  }
+
+  const endsAt =
+    e.dates?.end?.dateTime ??
+    estimateEndsAt(e.dates?.start, segName, venue?.name, subCategory);
+
+  return {
+    id: `ticketmaster-${e.id}`,
+    source: 'ticketmaster',
+    category,
+    title: e.name,
+    startsAt,
+    endsAt,
+    venue: venue?.name ?? venue?.city?.name ?? 'London',
+    latitude: lat,
+    longitude: lon,
+    description: e.info ?? e.description ?? e.pleaseNote,
+    subCategory,
+    url: e.url,
+  };
+}
+
+/** Query one venue's events directly by venueId (no market filter). */
+async function fetchTicketmasterVenue(
+  venueId: string,
+  range: DateRange,
+): Promise<TmEvent[]> {
+  const params = new URLSearchParams({
+    apikey: API_KEY,
+    venueId,
+    countryCode: 'GB',
+    size: '200',
+    sort: 'date,asc',
+    startDateTime: toIsoUtc(range.start),
+    endDateTime: toIsoUtc(range.end),
+  });
+  try {
+    const res = await fetch(`${BASE_URL}?${params.toString()}`);
+    if (!res.ok) {
+      console.warn('[ticketmaster] venue', venueId, 'non-OK', res.status);
+      return [];
+    }
+    const json = (await res.json()) as TmResponse;
+    return json._embedded?.events ?? [];
+  } catch (e) {
+    console.warn('[ticketmaster] venue', venueId, 'network error', e);
+    return [];
+  }
+}
+
 /** Fetch a single page of London events. Returns the raw events plus paging meta. */
 async function fetchTicketmasterPage(
   range: DateRange,
@@ -139,111 +288,55 @@ export async function fetchTicketmasterLondon(range: DateRange): Promise<AppEven
     return [];
   }
 
-  // Page through the result set so the whole window is covered, not just the
-  // nearest ~100 events. Stop once we've read every page TM reports or hit the
-  // API's hard deep-paging ceiling, whichever comes first.
-  const events: TmEvent[] = [];
+  // 1) General London pull (marketId 202), paged up to the 1000 ceiling.
+  const generalRaw: TmEvent[] = [];
   const first = await fetchTicketmasterPage(range, 0);
-  events.push(...first.events);
+  generalRaw.push(...first.events);
   const lastPage = Math.min(first.totalPages, MAX_PAGES);
   for (let page = 1; page < lastPage; page++) {
     const next = await fetchTicketmasterPage(range, page);
     if (next.events.length === 0) break;
-    events.push(...next.events);
+    generalRaw.push(...next.events);
   }
 
-  // Tally per segment and drop reasons.
-  const segmentCounts: Record<string, number> = {};
-  let droppedSports = 0;
-  let droppedNoCoords = 0;
-  let droppedNoStart = 0;
+  // 2) Priority "never-miss" venues, queried directly by venueId in parallel.
+  //    These bypass both the 1000-result cap and the market-202 filter.
+  const priorityResults = await Promise.all(
+    PRIORITY_VENUES.map(async (v) => ({
+      v,
+      events: await fetchTicketmasterVenue(v.venueId, range).catch(
+        () => [] as TmEvent[],
+      ),
+    })),
+  );
 
-  const out: AppEvent[] = [];
-  for (const e of events) {
-    const segName = e.classifications?.[0]?.segment?.name ?? 'Unknown';
-    const genreName = e.classifications?.[0]?.genre?.name ?? '';
-    segmentCounts[segName] = (segmentCounts[segName] ?? 0) + 1;
-
-    // Team sports are owned by the football APIs (ESPN + football-data), so we
-    // drop Ticketmaster's Sports segment — EXCEPT for arena entertainment that
-    // those feeds don't carry (WWE/wrestling, darts, e-sports), which we let
-    // through so big O2/Wembley dates like WWE Monday Night Raw still show.
-    const isSports = segName.toLowerCase() === 'sports';
-    if (isSports && !isAllowedEntertainmentSport(genreName)) {
-      droppedSports++;
-      continue;
-    }
-
-    const venue = e._embedded?.venues?.[0];
-    let lat = toNum(venue?.location?.latitude);
-    let lon = toNum(venue?.location?.longitude);
-
-    // Ticketmaster sometimes omits coordinates for big, well-known rooms (the
-    // O2, Wembley, OVO Arena, Tottenham Hotspur Stadium, Alexandra Palace…).
-    // Rather than drop those marquee events, resolve the venue/city name
-    // against our curated London venue table. Only drop if that fails too.
-    if (lat == null || lon == null) {
-      const place = findLondonPlace(venue?.name, venue?.city?.name);
-      if (place) {
-        lat = place.latitude;
-        lon = place.longitude;
-      } else {
-        droppedNoCoords++;
-        continue;
+  // 3) Map + de-duplicate by Ticketmaster event id (general first, then any
+  //    priority-venue events the general pull didn't already include).
+  const byId = new Map<string, AppEvent>();
+  for (const e of generalRaw) {
+    const mapped = toAppEvent(e);
+    if (mapped && !byId.has(mapped.id)) byId.set(mapped.id, mapped);
+  }
+  let priorityAdded = 0;
+  for (const { events } of priorityResults) {
+    for (const e of events) {
+      const mapped = toAppEvent(e);
+      if (mapped && !byId.has(mapped.id)) {
+        byId.set(mapped.id, mapped);
+        priorityAdded++;
       }
     }
-
-    const startsAt = e.dates?.start?.dateTime;
-    if (!startsAt) {
-      droppedNoStart++;
-      continue;
-    }
-
-    // Allowed entertainment-sports keep a 'sports' category (so they sit under
-    // the Sports filter + get a sport glyph); everything else uses the normal
-    // non-sports classification.
-    const cls = e.classifications?.[0];
-    let category: EventCategory;
-    let subCategory: string | undefined;
-    if (isSports) {
-      category = 'sports';
-      subCategory = genreName || 'Sports';
-    } else {
-      const c = classify(cls?.segment?.name);
-      category = c.category;
-      subCategory = cls?.genre?.name ?? c.sub;
-    }
-
-    // Ticketmaster occasionally returns dates.end.dateTime for concerts and
-    // festivals; otherwise fall back to a sane duration default keyed off
-    // the sub-category (3h for music/theatre, 2h for film, etc.).
-    const endsAt =
-      e.dates?.end?.dateTime ?? defaultEndsAt(startsAt, subCategory);
-
-    out.push({
-      id: `ticketmaster-${e.id}`,
-      source: 'ticketmaster',
-      category,
-      title: e.name,
-      startsAt,
-      endsAt,
-      venue: venue?.name ?? venue?.city?.name ?? 'London',
-      latitude: lat,
-      longitude: lon,
-      description: e.info ?? e.description ?? e.pleaseNote,
-      subCategory,
-      url: e.url,
-    });
   }
 
-  const segSummary =
-    Object.entries(segmentCounts)
-      .sort((a, b) => b[1] - a[1])
-      .map(([k, v]) => `${k}=${v}`)
-      .join(', ') || 'none';
+  const out = Array.from(byId.values());
+
+  const venueSummary = priorityResults
+    .map(({ v, events }) => `${v.name.split(',')[0]}=${events.length}`)
+    .join(', ');
   console.log(
-    `[ticketmaster] ${events.length} raw events across up to ${Math.min(first.totalPages, MAX_PAGES)} page(s) → ${out.length} usable ` +
-      `(segments: ${segSummary}; dropped: ${droppedSports} sports (owned by ESPN/football-data), ${droppedNoCoords} no-coords, ${droppedNoStart} no-start)`,
+    `[ticketmaster] general ${generalRaw.length} raw (≤${lastPage} of ${first.totalPages} pages); ` +
+      `priority venues added ${priorityAdded} → ${out.length} total usable`,
   );
+  console.log(`[ticketmaster] priority venue raw counts: ${venueSummary}`);
   return out;
 }

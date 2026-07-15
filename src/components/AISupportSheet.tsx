@@ -11,11 +11,20 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  SafeAreaProvider,
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 
 import { colors } from '@/theme/colors';
 import type { AppEvent } from '@/types/event';
-import { formatEventDate, isInRange, type DateRange } from '@/utils/dateFilters';
+import {
+  formatEventDate,
+  formatEventEndTime,
+  isInRange,
+  type DateRange,
+} from '@/utils/dateFilters';
 
 interface Props {
   visible: boolean;
@@ -185,6 +194,57 @@ const typeOf = (e: AppEvent): string =>
 
 const shortTitle = (t: string): string => (t.length > 24 ? `${t.slice(0, 22)}…` : t);
 
+// "What time does X start / finish", "when is X", "how long is X" — match a
+// named event in the list and report its exact start + end times.
+const TIME_INTENT = /\b(what time|when (does|is|are|s)|start time|starts?|finish(es)?|end(s| time)?|how long)\b/;
+const TIME_STOPWORDS = new Set([
+  'what', 'time', 'when', 'does', 'is', 'are', 'the', 'start', 'starts', 'starting',
+  'finish', 'finishes', 'finishing', 'end', 'ends', 'ending', 'how', 'long', 'event',
+  'events', 'today', 'tomorrow', 'tonight', 'this', 'that', 'there', 'at', 'on', 'in',
+  'for', 'will', 'show', 'shows', 'me', 'of', 'a', 'an', 'and', 'do', 'happening', 'whats',
+]);
+
+function answerNamedTimeQuery(
+  input: string,
+  events: AppEvent[],
+): { text: string; offer: AppEvent[] } | null {
+  const q = input.toLowerCase();
+  if (!TIME_INTENT.test(q)) return null;
+  const words = q
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && !TIME_STOPWORDS.has(w));
+  if (words.length === 0) return null;
+
+  const scored = events
+    .map((e) => {
+      const t = e.title.toLowerCase();
+      const score = words.reduce((n, w) => (t.includes(w) ? n + 1 : n), 0);
+      return { e, score };
+    })
+    .filter((x) => x.score > 0)
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        new Date(a.e.startsAt).getTime() - new Date(b.e.startsAt).getTime(),
+    );
+  if (scored.length === 0) return null;
+
+  const top = scored.slice(0, 3).map((x) => x.e);
+  const lines = top.map(
+    (e) =>
+      `• ${e.title} · starts ${formatEventDate(e.startsAt)}, ends ${formatEventEndTime(
+        e.startsAt,
+        e.endsAt,
+      )} · ${e.venue}`,
+  );
+  const head = top.length === 1 ? 'Here are the times:' : 'Closest matches:';
+  return {
+    text: `${head}\n${lines.join('\n')}\n\nWant a reminder or a calendar entry? Tap a button below.`,
+    offer: top,
+  };
+}
+
 /** Build the assistant's answer to an event question. `offer` lists events the UI can attach actions to. */
 function answerEventQuery(
   input: string,
@@ -241,6 +301,10 @@ export function AISupportSheet({ visible, onClose, events, onSaveEvent, onAddToC
   ]);
   const [input, setInput] = useState('');
   const scrollRef = useRef<ScrollView>(null);
+  // SafeAreaView's top edge doesn't apply reliably inside a Modal, which left
+  // the header (and the close button) jammed under the status bar. Read the
+  // inset directly and pad the header so the X is always reachable.
+  const insets = useSafeAreaInsets();
 
   const pushBot = (text: string) =>
     setMessages((prev) => [...prev, { id: `b-${Date.now()}-${Math.random()}`, role: 'bot', text }]);
@@ -279,7 +343,9 @@ export function AISupportSheet({ visible, onClose, events, onSaveEvent, onAddToC
     const userMsg: ChatMessage = { id: `u-${Date.now()}`, role: 'user', text: trimmed };
 
     const eventResult =
-      events && events.length > 0 ? answerEventQuery(trimmed, events) : null;
+      events && events.length > 0
+        ? answerNamedTimeQuery(trimmed, events) ?? answerEventQuery(trimmed, events)
+        : null;
 
     const botMsg: ChatMessage = eventResult
       ? {
@@ -297,8 +363,10 @@ export function AISupportSheet({ visible, onClose, events, onSaveEvent, onAddToC
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
-        <View style={styles.header}>
+      {/* Own provider: root insets don't reach a native Modal window. */}
+      <SafeAreaProvider>
+      <SafeAreaView style={styles.root} edges={['bottom']}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) + 6 }]}>
           <View style={styles.headerLeft}>
             <View style={styles.botBadge}>
               <Ionicons name="sparkles" size={16} color={colors.textOnPrimary} />
@@ -389,6 +457,7 @@ export function AISupportSheet({ visible, onClose, events, onSaveEvent, onAddToC
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }

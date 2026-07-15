@@ -70,7 +70,50 @@ export async function fetchAllEvents(range: DateRange): Promise<AppEvent[]> {
   // wins since it's inserted first).
   const byId = new Map<string, AppEvent>();
   for (const e of combined) if (!byId.has(e.id)) byId.set(e.id, e);
-  return Array.from(byId.values()).sort(
+  const merged = Array.from(byId.values()).sort(
     (a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
   );
+  warnOnEmptyMarqueeVenues(merged);
+  return merged;
+}
+
+/**
+ * Marquee venues that must ALWAYS be checked (client requirement): if any of
+ * these has zero events in the next 7 days, shout in the logs. In season
+ * these grounds are never genuinely dark for a week — an empty result almost
+ * always means a provider gap (e.g. the county cricket fixtures that went
+ * missing at Lord's and the Oval on 8 July 2026), so this is the tripwire
+ * that catches it before the client does.
+ */
+const MARQUEE_VENUES = [
+  "Lord's Cricket Ground",
+  'The Oval',
+  'Wembley Stadium',
+  'Twickenham Stadium',
+  'The O2 Arena',
+  'Emirates Stadium',
+  'Tottenham Hotspur Stadium',
+  'Stamford Bridge',
+  'London Stadium',
+  'All England Lawn Tennis Club',
+];
+
+function warnOnEmptyMarqueeVenues(events: AppEvent[]): void {
+  const now = Date.now();
+  const weekOut = now + 7 * 24 * 60 * 60 * 1000;
+  const counts = new Map<string, number>(MARQUEE_VENUES.map((v) => [v, 0]));
+  for (const e of events) {
+    if (!counts.has(e.venue)) continue;
+    const t = new Date(e.startsAt).getTime();
+    if (t >= now - 12 * 60 * 60 * 1000 && t <= weekOut) {
+      counts.set(e.venue, (counts.get(e.venue) ?? 0) + 1);
+    }
+  }
+  const empty = MARQUEE_VENUES.filter((v) => (counts.get(v) ?? 0) === 0);
+  if (empty.length > 0) {
+    console.warn(
+      `[events] ⚠️ MARQUEE VENUES WITH NO EVENTS IN NEXT 7 DAYS: ${empty.join(', ')} — ` +
+        'verify against the venues\' own fixture lists; likely a provider gap.',
+    );
+  }
 }

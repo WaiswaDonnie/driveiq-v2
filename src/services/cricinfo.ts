@@ -88,13 +88,17 @@ const fetchOne = async (url: string): Promise<CricMatch[]> => {
     }
     const json = (await res.json()) as CricResponse;
     // The "matches" feed returns content.matches; the "series" feed wraps
-    // matches inside content.series[].matches. Flatten both shapes.
+    // matches inside content.series[].matches. Merge BOTH shapes always —
+    // previously series matches were only used when the direct feed was
+    // empty, which silently dropped county fixtures (Middlesex at Lord's,
+    // Surrey at the Oval) whenever internationals filled the featured feed.
+    // That's how today's cricket vanished from both grounds (client report,
+    // 8 July 2026). The caller dedupes by match id.
     const direct = json.content?.matches ?? json.matches ?? [];
-    if (direct.length > 0) return direct;
     const fromSeries = (json.content?.series ?? []).flatMap(
       (s) => s.matches ?? [],
     );
-    return fromSeries;
+    return [...direct, ...fromSeries];
   } catch (e) {
     console.warn('[cricinfo] network error', e);
     return [];

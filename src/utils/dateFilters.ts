@@ -111,7 +111,7 @@ export function buildFilterChips(
     { key: 'all', label: FILTER_LABELS.all },
     { key: 'today', label: FILTER_LABELS.today },
     { key: 'tomorrow', label: FILTER_LABELS.tomorrow },
-    { key: 'next3', label: FILTER_LABELS.next3 },
+    // "Next 3 Days" removed — individual day chips below cover that range.
   ];
   const today = startOfDay(now);
   for (let n = 2; n <= futureDays; n++) {

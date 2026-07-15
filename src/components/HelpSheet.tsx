@@ -8,7 +8,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors } from '@/theme/colors';
 
@@ -68,6 +68,8 @@ export function HelpSheet({ visible, onClose, onOpenAISupport }: Props) {
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      {/* Own provider: root insets don't reach a native Modal window. */}
+      <SafeAreaProvider>
       <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Help & FAQs</Text>
@@ -116,6 +118,7 @@ export function HelpSheet({ visible, onClose, onOpenAISupport }: Props) {
           ) : null}
         </ScrollView>
       </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }

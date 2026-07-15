@@ -9,7 +9,8 @@ import {
   Text,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import Constants from 'expo-constants';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors } from '@/theme/colors';
 
@@ -22,9 +23,20 @@ interface Props {
   version?: string;
 }
 
-export function AboutSheet({ visible, onClose, version = '5.0.2' }: Props) {
+export function AboutSheet({
+  visible,
+  onClose,
+  // Read the real app version so About can never drift out of date again
+  // (it was hardcoded and stuck on 5.0.2).
+  version = Constants.expoConfig?.version ?? '—',
+}: Props) {
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      {/* A full-screen Modal is its own native window on iOS, so the app-root
+          SafeAreaProvider's insets don't reach it — SafeAreaView read a top
+          inset of 0 and the header rendered under the status bar (the
+          "cropped page" bug). Each modal needs its own provider. */}
+      <SafeAreaProvider>
       <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>About DriveIQ</Text>
@@ -79,6 +91,7 @@ export function AboutSheet({ visible, onClose, version = '5.0.2' }: Props) {
           </Text>
         </ScrollView>
       </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }

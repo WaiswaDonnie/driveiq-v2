@@ -193,19 +193,76 @@ const fetchVenueSchedule = async (
   }
 };
 
+// ─── Runtime venue-id resolution ─────────────────────────────────────────
+// The hardcoded sportsdbVenueId fields were never populated (all null), so
+// the venue loop iterated over an EMPTY list — the "always check the big
+// venues" guarantee never actually ran, which is how today's cricket at
+// Lord's and the Oval went missing (client report, 8 July 2026). Instead of
+// depending on a manual script, resolve each venue's id via searchvenues.php
+// on first use and cache it for the app session.
+
+const venueIdCache = new Map<string, number | null>();
+
+/** Search terms tried in order — full name first, then a trimmed alias. */
+const searchTermsFor = (place: LondonPlace): string[] => {
+  const full = place.venue;
+  const trimmed = full
+    .replace(/\b(Cricket Ground|Community Stadium|National Sports Centre)\b/i, '')
+    .trim();
+  return trimmed && trimmed !== full ? [full, trimmed] : [full];
+};
+
+const resolveVenueId = async (place: LondonPlace): Promise<number | null> => {
+  if (typeof place.sportsdbVenueId === 'number') return place.sportsdbVenueId;
+  if (venueIdCache.has(place.venue)) return venueIdCache.get(place.venue) ?? null;
+
+  for (const term of searchTermsFor(place)) {
+    try {
+      const res = await fetch(
+        `${V1_BASE(PREMIUM_KEY || FREE_KEY)}/searchvenues.php?t=${encodeURIComponent(term)}`,
+      );
+      if (!res.ok) continue;
+      const json = (await res.json()) as {
+        venues?: { idVenue?: string; strVenue?: string; strCountry?: string }[];
+      };
+      const candidates = json.venues ?? [];
+      // Prefer an English venue; fall back to the first hit.
+      const hit =
+        candidates.find((v) => (v.strCountry ?? '').toLowerCase().includes('england')) ??
+        candidates[0];
+      const id = hit?.idVenue != null ? parseInt(hit.idVenue, 10) : NaN;
+      if (Number.isFinite(id)) {
+        venueIdCache.set(place.venue, id);
+        return id;
+      }
+    } catch (e) {
+      console.warn('[sportsdb] venue-id lookup failed', place.venue, e);
+    }
+  }
+  venueIdCache.set(place.venue, null);
+  return null;
+};
+
 const fetchPremiumByVenue = async (range: DateRange): Promise<AppEvent[]> => {
-  // Only iterate venues whose sportsdbVenueId has been resolved. The rest are
-  // silently skipped — they still work as coordinate fallbacks for events
-  // that happen to come in via Ticketmaster or fallback sport-by-day calls.
-  const venuesWithIds = LONDON_VENUE_LIST.filter(
-    (v): v is LondonPlace & { sportsdbVenueId: number } =>
-      typeof v.sportsdbVenueId === 'number',
+  // Resolve ids for every curated venue (cached after the first fetch), then
+  // ask TheSportsDB what's next at each — cricket, football, rugby, anything.
+  const resolved = await Promise.all(
+    LONDON_VENUE_LIST.map(async (v) => ({
+      place: v,
+      id: await resolveVenueId(v),
+    })),
+  );
+  const venuesWithIds = resolved
+    .filter((r): r is { place: LondonPlace; id: number } => r.id != null)
+    .map((r) => ({ ...r.place, sportsdbVenueId: r.id }));
+
+  console.log(
+    `[sportsdb v2] venue ids resolved for ${venuesWithIds.length}/${LONDON_VENUE_LIST.length} venues`,
   );
 
   if (venuesWithIds.length === 0) {
     console.warn(
-      '[sportsdb v2] Premium key set but no venue IDs resolved yet. ' +
-        'Run `node scripts/resolve-venue-ids.mjs` to populate londonVenues.ts.',
+      '[sportsdb v2] no venue IDs could be resolved — venue loop skipped this fetch.',
     );
     return [];
   }
