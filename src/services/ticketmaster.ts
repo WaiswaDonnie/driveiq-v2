@@ -157,6 +157,12 @@ const PRIORITY_VENUES: PriorityVenue[] = [
   { name: 'Allianz Stadium, Twickenham', venueId: 'KovZ9177-bV' },
   { name: 'OVO Arena Wembley', venueId: 'KovZ9177yOV' },
   { name: 'Royal Albert Hall', venueId: 'KovZ9177Arf' },
+  // Added 22 Jul 2026 after client report (Metallica 3/5 Jul + Athletics
+  // 18 Jul at London Stadium missed by the market-202 pull). IDs verified
+  // against the TM venue search on the same day.
+  { name: 'London Stadium', venueId: 'KovZ9177EX0' },
+  { name: 'The Kia Oval', venueId: 'KovZ9177Qcf' },
+  { name: 'Twickenham Stoop', venueId: 'KovZ9177-Kf' },
   { name: 'Hyde Park', venueId: 'KovZ9177gxV' },
   { name: 'Alexandra Palace', venueId: 'KovZpZAn61lA' },
   { name: 'ExCeL', venueId: 'KovZ91771S0' },

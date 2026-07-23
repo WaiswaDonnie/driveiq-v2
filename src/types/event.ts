@@ -14,6 +14,7 @@ export interface AppEvent {
     | 'football-data'
     | 'espn'
     | 'ticketmaster'
+    | 'venue-site'
     | 'sample'
     | 'featured';
   category: EventCategory;

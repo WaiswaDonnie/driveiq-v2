@@ -168,6 +168,39 @@ const VENUES = {
     sportsdbVenueId: null,
   },
 
+  // ── Horse racing (client request 23 Jul 2026 — race days are big
+  //    driver-demand events invisible to Ticketmaster/football APIs) ────
+  ascot: {
+    venue: 'Ascot Racecourse',
+    latitude: 51.4139,
+    longitude: -0.6796,
+    sportsdbVenueId: null,
+  },
+  epsom: {
+    venue: 'Epsom Downs Racecourse',
+    latitude: 51.311,
+    longitude: -0.2577,
+    sportsdbVenueId: null,
+  },
+  sandown: {
+    venue: 'Sandown Park Racecourse',
+    latitude: 51.3745,
+    longitude: -0.3643,
+    sportsdbVenueId: null,
+  },
+  kempton: {
+    venue: 'Kempton Park Racecourse',
+    latitude: 51.4194,
+    longitude: -0.4106,
+    sportsdbVenueId: null,
+  },
+  windsorRaces: {
+    venue: 'Royal Windsor Racecourse',
+    latitude: 51.4903,
+    longitude: -0.6224,
+    sportsdbVenueId: null,
+  },
+
   // ── Multi-sport / arenas ────────────────────────────────────────────
   wembley: {
     venue: 'Wembley Stadium',
@@ -270,6 +303,21 @@ const PLACES: Record<string, LondonPlace> = {
   saracens: VENUES.saracens,
   harlequins: VENUES.harlequins,
   'london irish': VENUES.twickenham, // historical — exiled but still a London badge
+
+  // Horse racing
+  'ascot racecourse': VENUES.ascot,
+  ascot: VENUES.ascot,
+  'epsom downs racecourse': VENUES.epsom,
+  'epsom downs': VENUES.epsom,
+  epsom: VENUES.epsom,
+  'sandown park racecourse': VENUES.sandown,
+  'sandown park': VENUES.sandown,
+  sandown: VENUES.sandown,
+  'kempton park racecourse': VENUES.kempton,
+  'kempton park': VENUES.kempton,
+  kempton: VENUES.kempton,
+  'royal windsor racecourse': VENUES.windsorRaces,
+  'windsor racecourse': VENUES.windsorRaces,
 
   // Venue names
   'emirates stadium': VENUES.emirates,

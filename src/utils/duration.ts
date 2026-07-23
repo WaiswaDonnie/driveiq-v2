@@ -24,6 +24,7 @@ const DEFAULT_DURATION_MINUTES: Record<string, number> = {
   Motorsport: 120,
   Darts: 180,
   Golf: 480,                // a day's tournament play
+  'Horse Racing': 360,      // gates → last race, ~6h (e.g. 12:00–18:00)
 
   // ── Non-sports (Ticketmaster) ────────────────────
   Music: 180,               // concert + opener

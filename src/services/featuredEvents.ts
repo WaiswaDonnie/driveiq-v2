@@ -33,7 +33,114 @@ const FEATURED: AppEvent[] = [
   // ── The Championships, Wimbledon 2026 — one pin per day, 29 June–12 July ─
   // All England Lawn Tennis & Croquet Club, SW19. Matches run ~11:00–21:00.
   ...wimbledonDays(),
+
+  // ── BBC Proms 2026 at the Royal Albert Hall — 17 July to 12 September ────
+  // Proms tickets are sold through the Royal Albert Hall box office / BBC,
+  // NOT Ticketmaster, so the entire season is invisible to our Ticketmaster
+  // feed (discovered 22 Jul 2026 when the client flagged the Hall showing no
+  // events mid-season). Full 72-concert RAH schedule curated from the
+  // published BBC Proms 2026 listings. Times are local (BST).
+  ...promsEvents(),
 ];
+
+/**
+ * BBC Proms 2026 — every Royal Albert Hall concert as
+ * [date, startLocal, endLocal, title]. End times are the published
+ * "c" (circa) finish times. Source: BBC Proms 2026 listings
+ * (classical-music.com day-by-day guide, published 21 Apr 2026).
+ */
+const PROMS_2026: [string, string, string, string][] = [
+  ['2026-07-17', '19:00', '21:00', 'First Night of the Proms 2026'],
+  ['2026-07-18', '19:30', '21:45', 'Prog Rock: A Fanfare for the Common Man'],
+  ['2026-07-19', '11:00', '13:00', 'Black Dyke Band'],
+  ['2026-07-19', '19:00', '21:15', 'Boléro: Rhythms of Spain'],
+  ['2026-07-20', '19:00', '21:20', "Beethoven's Ninth"],
+  ['2026-07-21', '18:00', '20:10', 'Also sprach Zarathustra'],
+  ['2026-07-21', '22:15', '23:30', 'Late Night Baroque'],
+  ['2026-07-22', '19:00', '21:05', "Mahler's 'Tragic' Sixth"],
+  ['2026-07-23', '19:30', '21:35', 'Afterlife: Visions of the Beyond'],
+  ['2026-07-24', '19:30', '22:00', "John Wilson Conducts Respighi's 'Roman Trilogy'"],
+  ['2026-07-25', '14:00', '16:00', 'Horrible Science: The Big Bang Proms Experiment'],
+  ['2026-07-25', '18:00', '20:00', 'Horrible Science: The Big Bang Proms Experiment'],
+  ['2026-07-26', '11:00', '12:30', 'Olivier Latry Plays Bach'],
+  ['2026-07-26', '19:00', '21:10', 'Poulenc and Adams'],
+  ['2026-07-27', '19:00', '21:00', 'From the Alps to the Auvergne'],
+  ['2026-07-28', '19:00', '21:20', "Sibelius's Second"],
+  ['2026-07-29', '19:00', '21:05', "Elgar's First"],
+  ['2026-07-30', '19:00', '21:00', "Korngold's Violin Concerto"],
+  ['2026-07-31', '19:30', '21:40', "Bruch's Violin Concerto"],
+  ['2026-08-01', '19:00', '21:15', "Mahler's First by Heart"],
+  ['2026-08-02', '11:00', '13:15', "Mahler's First by Heart"],
+  ['2026-08-02', '19:30', '21:45', 'Kavakos Plays Tchaikovsky'],
+  ['2026-08-03', '19:00', '21:05', "Rachmaninov's 'Paganini' Variations"],
+  ['2026-08-04', '19:00', '21:05', 'Dvořák and Mendelssohn'],
+  ['2026-08-05', '18:00', '20:10', "Rachmaninov's Second"],
+  ['2026-08-05', '22:15', '23:30', 'Under African Skies'],
+  ['2026-08-06', '19:00', '21:30', "Elder Conducts Weber's 'Oberon'"],
+  ['2026-08-07', '19:00', '21:00', "Rossini's 'Stabat mater'"],
+  ['2026-08-08', '19:30', '21:40', "Berlioz's 'Symphonie fantastique'"],
+  ['2026-08-09', '11:00', '12:00', 'Relaxed Prom'],
+  ['2026-08-09', '19:00', '21:00', 'The OAE Plays Mozart and Haydn'],
+  ['2026-08-10', '19:00', '21:15', 'Salonen Conducts 20th-Century Classics'],
+  ['2026-08-11', '18:00', '20:10', 'Dudamel and the LA Phil: Beethoven and Adès'],
+  ['2026-08-11', '22:15', '23:30', 'Evelyn Glennie and the Fantasia Orchestra'],
+  ['2026-08-12', '19:00', '21:00', 'Dudamel and the LA Phil: Beethoven and Ortiz'],
+  ['2026-08-13', '19:00', '21:15', "Gershwin's Piano Concerto"],
+  ['2026-08-14', '19:00', '21:15', 'BBC Concert Orchestra and Edwin Outwater'],
+  ['2026-08-15', '19:30', '21:00', "Pappano Conducts Berlioz's 'Requiem'"],
+  ['2026-08-16', '11:00', '13:00', 'Swedish Chamber Orchestra: Beethoven and Baroque'],
+  ['2026-08-16', '19:30', '21:30', "Elgar's Cello Concerto"],
+  ['2026-08-17', '19:00', '21:05', 'Copland and Stravinsky'],
+  ['2026-08-18', '19:00', '20:50', "Shostakovich's Tenth"],
+  ['2026-08-19', '19:00', '21:35', "'Ariadne auf Naxos' from Glyndebourne"],
+  ['2026-08-20', '19:00', '21:15', 'Miles Davis Centenary'],
+  ['2026-08-21', '19:00', '21:45', "Mahler's 'Song of the Earth'"],
+  ['2026-08-22', '19:30', '21:35', 'Chineke! Orchestra with Angel Blue'],
+  ['2026-08-23', '11:00', '13:00', "Mozart's 'Haffner' Symphony"],
+  ['2026-08-23', '19:30', '21:45', "Capuçon Plays Dvořák's Cello Concerto"],
+  ['2026-08-24', '19:00', '21:30', 'American Classics'],
+  ['2026-08-25', '19:00', '21:15', 'Bond and Beyond'],
+  ['2026-08-26', '19:00', '21:15', 'The Met Orchestra Plays Strauss'],
+  ['2026-08-27', '18:00', '20:10', 'The Met Orchestra Plays Mahler'],
+  ['2026-08-27', '22:15', '23:30', 'Ultimate Calm'],
+  ['2026-08-28', '19:30', '21:00', 'Altın Gün'],
+  ['2026-08-29', '19:30', '21:45', 'Stravinsky and Prokofiev with the Oslo Philharmonic'],
+  ['2026-08-30', '19:00', '21:30', "Berlioz's 'The Damnation of Faust'"],
+  ['2026-08-31', '19:00', '21:30', "Enchanted: Alan Menken's Music for Disney"],
+  ['2026-09-01', '19:30', '21:35', "Rachmaninov's Third Piano Concerto"],
+  ['2026-09-02', '18:30', '20:25', 'Berlin Philharmonic Plays Elgar and Tchaikovsky'],
+  ['2026-09-02', '22:15', '23:30', 'Steve Reich at 90'],
+  ['2026-09-03', '19:00', '21:15', 'Berlin Philharmonic Plays Beethoven and Scriabin'],
+  ['2026-09-04', '19:00', '21:15', "Vaughan Williams's 'Fantasia' and Symphony No. 9"],
+  ['2026-09-05', '19:00', '21:15', 'Martha Argerich Plays Beethoven'],
+  ['2026-09-06', '11:00', '13:00', 'John Wilson Conducts the Sinfonia of London Strings'],
+  ['2026-09-06', '19:30', '21:25', "Dvořák's 'New World' Symphony"],
+  ['2026-09-07', '19:00', '21:15', 'Rattle Conducts Schumann'],
+  ['2026-09-08', '18:30', '20:15', 'Rachmaninov, Bartók and Varèse'],
+  ['2026-09-08', '22:15', '23:30', 'Jules Buckley Orchestra'],
+  ['2026-09-09', '19:00', '20:55', "Strauss's 'Four Last Songs'"],
+  ['2026-09-10', '19:00', '21:30', "Bach's Mass in B minor with Arcangelo"],
+  ['2026-09-11', '20:00', '21:30', "Mahler's Ninth with the Mahler Academy Orchestra"],
+  ['2026-09-12', '19:15', '22:30', 'Last Night of the Proms 2026'],
+];
+
+/** Build AppEvents for every Royal Albert Hall Prom. */
+function promsEvents(): AppEvent[] {
+  return PROMS_2026.map(([date, startLocal, endLocal, title]) => ({
+    id: `featured-proms-2026-${date}-${startLocal.replace(':', '')}`,
+    source: 'featured' as const,
+    category: 'other' as const,
+    title: `BBC Proms: ${title}`,
+    startsAt: `${date}T${startLocal}:00+01:00`,
+    endsAt: `${date}T${endLocal}:00+01:00`,
+    venue: 'Royal Albert Hall',
+    latitude: 51.5009,
+    longitude: -0.1774,
+    description:
+      'BBC Proms 2026 at the Royal Albert Hall — the world\'s biggest classical music festival, 17 July to 12 September.',
+    subCategory: 'Music',
+  }));
+}
 
 /** Build a Royal Ascot day entry. */
 function ascot(dayLabel: string, date: string): AppEvent {

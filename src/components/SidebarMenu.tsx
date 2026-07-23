@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import React from 'react';
 import {
   Alert,
@@ -304,7 +305,7 @@ export function SidebarMenu({
             <Section title="Plan & billing" rows={billingRows} render={renderRow} />
             <Section title="Support" rows={supportRows} render={renderRow} />
 
-            <Text style={styles.versionText}>DriveIQ v5.0.2</Text>
+            <Text style={styles.versionText}>{`DriveIQ v${Constants.expoConfig?.version ?? '—'}`}</Text>
           </ScrollView>
         </SafeAreaView>
     </View>
