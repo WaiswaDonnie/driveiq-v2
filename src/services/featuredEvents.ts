@@ -41,7 +41,37 @@ const FEATURED: AppEvent[] = [
   // events mid-season). Full 72-concert RAH schedule curated from the
   // published BBC Proms 2026 listings. Times are local (BST).
   ...promsEvents(),
+
+  // ── Ascot 2026 marquee race days (client request, 23 Jul 2026) ─────────
+  // ascot.com is a client-rendered app with no structured data the
+  // venue-site scraper can read, so the headline meetings are curated here.
+  // Dates cross-checked against the published 2026 fixture list
+  // (ascot.com/racedays) on 23 Jul 2026. Typical raceday: gates ~10:30,
+  // first race ~13:50, last race ~17:30.
+  raceday('ascot-king-george-fri', 'Ascot — King George Friday Raceday', '2026-07-24'),
+  raceday('ascot-king-george-sat', 'Ascot — King George Day', '2026-07-25'),
+  raceday('ascot-shergar-cup', 'Ascot — Shergar Cup', '2026-08-08'),
+  raceday('ascot-food-wine-fri', 'Ascot — Food & Wine Friday Raceday', '2026-09-04'),
+  raceday('ascot-food-wine-sat', 'Ascot — Food & Wine Saturday Raceday', '2026-09-05'),
 ];
+
+/** Build a generic Ascot race-day entry (non-Royal-Ascot meetings). */
+function raceday(idSlug: string, title: string, date: string): AppEvent {
+  return {
+    id: `featured-${idSlug}-${date}`,
+    source: 'featured',
+    category: 'sports',
+    title,
+    startsAt: `${date}T13:30:00+01:00`,
+    endsAt: `${date}T17:45:00+01:00`,
+    venue: 'Ascot Racecourse',
+    latitude: 51.4106,
+    longitude: -0.6785,
+    description:
+      'Race day at Ascot Racecourse. Gates open ~10:30; racing roughly 13:50–17:30. Expect heavy traffic on the A329/A332 before and after racing.',
+    subCategory: 'Horse Racing',
+  };
+}
 
 /**
  * BBC Proms 2026 — every Royal Albert Hall concert as
