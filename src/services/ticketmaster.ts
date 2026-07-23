@@ -163,6 +163,15 @@ const PRIORITY_VENUES: PriorityVenue[] = [
   { name: 'London Stadium', venueId: 'KovZ9177EX0' },
   { name: 'The Kia Oval', venueId: 'KovZ9177Qcf' },
   { name: 'Twickenham Stoop', venueId: 'KovZ9177-Kf' },
+  // Park festival venues (client request 23 Jul 2026 — festivals bring tens
+  // of thousands of guests). Verified same day: Crystal Palace Bowl carries
+  // the whole South Facing series (14 events), Victoria Park carries every
+  // All Points East day (8 events). Gunnersbury shows 0 on TM (Festival
+  // Republic sells direct) — kept for future coverage; its shows are curated
+  // in featuredEvents.ts.
+  { name: 'Crystal Palace Bowl', venueId: 'KovZ9177tzf' },
+  { name: 'Victoria Park London', venueId: 'KovZ9177Mvf' },
+  { name: 'Gunnersbury Park', venueId: 'KovZ9177HYf' },
   { name: 'Hyde Park', venueId: 'KovZ9177gxV' },
   { name: 'Alexandra Palace', venueId: 'KovZpZAn61lA' },
   { name: 'ExCeL', venueId: 'KovZ91771S0' },

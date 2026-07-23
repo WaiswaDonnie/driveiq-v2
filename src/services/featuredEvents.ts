@@ -20,6 +20,14 @@ import { isInRange, type DateRange } from '@/utils/dateFilters';
  * explicit offset so they're unambiguous.
  */
 
+const GUNNERSBURY = {
+  venue: 'Gunnersbury Park',
+  latitude: 51.4997,
+  longitude: -0.2875,
+  description:
+    'Festival Republic summer residency at Gunnersbury Park (7–28 Aug). Large crowds around Popes Lane / North Circular; Acton Town & Gunnersbury tubes busiest at close.',
+};
+
 const FEATURED: AppEvent[] = [
   // ── Royal Ascot 2026 — Tue 16 to Sat 20 June ──────────────────────────
   // Gates 10:30, Royal Procession 14:00, racing 14:30 → ~18:00.
@@ -53,7 +61,58 @@ const FEATURED: AppEvent[] = [
   raceday('ascot-shergar-cup', 'Ascot — Shergar Cup', '2026-08-08'),
   raceday('ascot-food-wine-fri', 'Ascot — Food & Wine Friday Raceday', '2026-09-04'),
   raceday('ascot-food-wine-sat', 'Ascot — Food & Wine Saturday Raceday', '2026-09-05'),
+
+  // ── Summer park festivals (client request, 23 Jul 2026) ────────────────
+  // Tens of thousands of guests per day; sold via RA/See Tickets/direct, so
+  // invisible to Ticketmaster. South Facing (Crystal Palace Bowl) and All
+  // Points East (Victoria Park) ARE on Ticketmaster and come through the
+  // priority-venue queries — NOT curated here, to avoid double pins.
+  //
+  // Junction 2 — Boston Manor Park, Brentford. Dates from junction2.london
+  // (verified 23 Jul 2026). Typical hours 12:00–22:30.
+  ...['2026-07-24', '2026-07-25', '2026-07-26', '2026-07-31', '2026-08-01', '2026-08-02'].map(
+    (date) =>
+      parkEvent('junction2', `Junction 2 Festival`, date, '12:00', '22:30', {
+        venue: 'Boston Manor Park',
+        latitude: 51.4936,
+        longitude: -0.3247,
+        description:
+          'Junction 2 electronic music festival at Boston Manor Park, Brentford. ~20k attendees/day; expect heavy traffic on the A4/M4 junction and Boston Manor Road.',
+      }),
+  ),
+  // Festival Republic residency at Gunnersbury Park — shows verified from
+  // festivalrepublic.com event pages, 23 Jul 2026. TM lists 0 for this venue.
+  parkEvent('gunnersbury', 'Gospel Garden Festival', '2026-08-02', '12:00', '22:00', GUNNERSBURY),
+  parkEvent('gunnersbury', 'Tom Jones live at Gunnersbury Park', '2026-08-05', '16:00', '22:30', GUNNERSBURY),
+  parkEvent('gunnersbury', 'Roots Picnic UK — Day 1', '2026-08-08', '12:00', '22:30', GUNNERSBURY),
+  parkEvent('gunnersbury', 'Roots Picnic UK — Day 2', '2026-08-09', '12:00', '22:30', GUNNERSBURY),
+  parkEvent('gunnersbury', 'Lenny Kravitz live at Gunnersbury Park', '2026-08-15', '15:00', '22:30', GUNNERSBURY),
+  parkEvent('gunnersbury', 'Jimmy Eat World live at Gunnersbury Park', '2026-08-16', '15:00', '22:30', GUNNERSBURY),
 ];
+
+/** Build a park-festival day entry. */
+function parkEvent(
+  idSlug: string,
+  title: string,
+  date: string,
+  startLocal: string,
+  endLocal: string,
+  place: { venue: string; latitude: number; longitude: number; description: string },
+): AppEvent {
+  return {
+    id: `featured-${idSlug}-${date}-${startLocal.replace(':', '')}`,
+    source: 'featured',
+    category: 'other',
+    title,
+    startsAt: `${date}T${startLocal}:00+01:00`,
+    endsAt: `${date}T${endLocal}:00+01:00`,
+    venue: place.venue,
+    latitude: place.latitude,
+    longitude: place.longitude,
+    description: place.description,
+    subCategory: 'Music',
+  };
+}
 
 /** Build a generic Ascot race-day entry (non-Royal-Ascot meetings). */
 function raceday(idSlug: string, title: string, date: string): AppEvent {
