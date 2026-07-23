@@ -51,6 +51,12 @@ const SPORT_FEEDS: SportFeed[] = [
   { path: 'soccer/eng.w.1', label: 'Women’s Super League', sub: 'Football' },
   { path: 'soccer/eng.w.fa', label: 'Women’s FA Cup', sub: 'Football' },
   { path: 'soccer/fifa.friendly', label: 'International Friendlies', sub: 'Football' },
+  // Club pre-season friendlies (Emirates Cup, summer warm-ups at London
+  // grounds). Verified live 23 Jul 2026 — feed carries worldwide club
+  // friendlies; findLondonPlace() below keeps only London-hosted ones.
+  // Client requirement: pre-season must be 100% covered before the new
+  // season starts.
+  { path: 'soccer/club.friendly', label: 'Pre-season Friendly', sub: 'Football' },
   { path: 'soccer/uefa.champions', label: 'UEFA Champions League', sub: 'Football' },
   { path: 'soccer/uefa.europa', label: 'UEFA Europa League', sub: 'Football' },
   { path: 'soccer/fifa.world', label: 'FIFA World Cup', sub: 'Football' },

@@ -88,6 +88,30 @@ const FEATURED: AppEvent[] = [
   parkEvent('gunnersbury', 'Roots Picnic UK — Day 2', '2026-08-09', '12:00', '22:30', GUNNERSBURY),
   parkEvent('gunnersbury', 'Lenny Kravitz live at Gunnersbury Park', '2026-08-15', '15:00', '22:30', GUNNERSBURY),
   parkEvent('gunnersbury', 'Jimmy Eat World live at Gunnersbury Park', '2026-08-16', '15:00', '22:30', GUNNERSBURY),
+
+  // ── Longines Global Champions Tour — Royal Hospital Chelsea ────────────
+  // World-championship showjumping in the Royal Hospital's South Grounds.
+  // Sold via the tour's own ticketing (tickets.gcglobalchampions.com), so
+  // invisible to every API. Dates verified 23 Jul 2026 (gcglobalchampions
+  // .com/en-us/schedule/2026/london): Fri 7 – Sun 9 August 2026.
+  // NOTE: Chestertons Polo in the Park (Hurlingham Park, Fulham) was
+  // 5–7 June 2026 — already past; it IS on Ticketmaster, so 2027 editions
+  // arrive automatically via the general TM pull.
+  ...recurringDaily({
+    idPrefix: 'featured-lgct-chelsea-2026',
+    title: (label) => `Longines Global Champions Tour — ${label}`,
+    startDate: '2026-08-07',
+    endDate: '2026-08-09',
+    startLocal: '11:00',
+    endLocal: '19:00',
+    venue: 'Royal Hospital Chelsea',
+    latitude: 51.4866,
+    longitude: -0.1588,
+    description:
+      'International showjumping at the Royal Hospital Chelsea. Crowds concentrate along Chelsea Embankment and Royal Hospital Road; busiest at session changeovers.',
+    subCategory: 'Equestrian',
+    category: 'sports',
+  }),
 ];
 
 /** Build a park-festival day entry. */
