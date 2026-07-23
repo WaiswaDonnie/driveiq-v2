@@ -28,7 +28,18 @@ const GUNNERSBURY = {
     'Festival Republic summer residency at Gunnersbury Park (7–28 Aug). Large crowds around Popes Lane / North Circular; Acton Town & Gunnersbury tubes busiest at close.',
 };
 
-const FEATURED: AppEvent[] = [
+// IMPORTANT: the featured list is built LAZILY (first call), not at module
+// load. Building it at module scope crashed the app (23 Jul 2026): the array
+// spreads promsEvents(), which reads PROMS_2026 — declared further down the
+// file — and after Babel downlevels `const` to `var` that read yields
+// `undefined` instead of a temporal-dead-zone error, so `.map` blew up at
+// startup. Deferring construction until after the whole module has evaluated
+// makes declaration order irrelevant. Do NOT convert this back to a
+// module-level array.
+let featuredCache: AppEvent[] | null = null;
+
+function buildFeatured(): AppEvent[] {
+  return [
   // ── Royal Ascot 2026 — Tue 16 to Sat 20 June ──────────────────────────
   // Gates 10:30, Royal Procession 14:00, racing 14:30 → ~18:00.
   // Ascot Racecourse, Berkshire.
@@ -112,7 +123,8 @@ const FEATURED: AppEvent[] = [
     subCategory: 'Equestrian',
     category: 'sports',
   }),
-];
+  ];
+}
 
 /** Build a park-festival day entry. */
 function parkEvent(
@@ -345,5 +357,6 @@ function wimbledonDays(): AppEvent[] {
  * even though it's synchronous local data.
  */
 export async function fetchFeaturedLondon(range: DateRange): Promise<AppEvent[]> {
-  return FEATURED.filter((e) => isInRange(e.startsAt, range));
+  if (featuredCache == null) featuredCache = buildFeatured();
+  return featuredCache.filter((e) => isInRange(e.startsAt, range));
 }
